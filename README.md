@@ -10,6 +10,7 @@ Topics:
 - Binary outcome models
 - Count data models
 
+Project Lists
 1. Does a Generous Return Policy Affect the Final Price on Ebay?
 2. 
 3.
