@@ -1,0 +1,2809 @@
+---
+title: "Econometrics Final Project"
+author: "Yiting,Jonathan,Cheng"
+date: "November 2018"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+rm(list = ls())
+setwd("C:/Users/tpstech/Desktop/BA SCU/OMIS 2392 Econometrics with R/Final Case_ Training Program")
+library(readstata13)
+library(stargazer)
+library(gdata)
+library(ggplot2)
+library(psych) 
+library(ggeffects)
+library(QuantPsyc)
+library(usdm)
+library(lmtest)
+library(multiwayvcov)
+library(sandwich)
+library(foreign)
+library(AER)
+library(aod)
+library(Rcpp)
+library(mfx)
+library(nnet)
+library(reshape2)
+library(msm)
+library(dplyr) 
+
+# turn off scientific notation except for big numbers. 
+options(scipen = 9)
+```
+
+#==========================================================
+## Load & Explore Data
+#==========================================================
+```{r}
+mydata = read.dta13("C:/Users/tpstech/Desktop/BA SCU/OMIS 2392 Econometrics with R/Final Case_ Training Program/Annual sales-returns.dta")
+head(mydata)
+stargazer(mydata, type="text", median=TRUE, iqr=TRUE,digits=1, title="Descriptive Statistics") 
+describeBy(mydata, mydata$year)
+
+####################### Define New Variables 
+mydata$sumoftraining <- rowSums(mydata[,28:35], na.rm=TRUE)    # In the year of record, the sum of training modules taken. treating NA/s as 0. 
+mydata$training <- ifelse(mydata$sumoftraining>0, 1, 0)       # In the year of record, taken at least 1 training module -1, otherwise 0. treat NA/s as 0.
+training_df <- subset(mydata, training==1, employee_id)
+mydata$group <- ifelse(mydata$employee_id %in% training_df$employee_id,1,0)  # If employee taken at least 1 training in 2012 & 2013, the group identifacation is 1, otherwise, 0.
+df <- mydata[c(2,9,28:38)]    # double check data
+stargazer(mydata[c("sumoftraining","training","group")], type = "text", median=TRUE, iqr=TRUE, digits = 2, title = "Summary Statistics")
+
+mydata$sa_yearsofservice[is.na(mydata$sa_yearsofservice)] <- mean(mydata$sa_yearsofservice, na.rm=TRUE) 
+mydata$avg_female[is.na(mydata$avg_female)] <- mean(mydata$avg_female, na.rm=TRUE)
+mydata$avg_age[is.na(mydata$avg_age)] <- mean(mydata$avg_age, na.rm=TRUE)
+mydata$avg_income[is.na(mydata$avg_income)] <- mean(mydata$avg_income, na.rm=TRUE)     
+mydata$avg_homeowner[is.na(mydata$avg_homeowner)] <- mean(mydata$avg_homeowner, na.rm=TRUE)
+mydata$avg_residency[is.na(mydata$avg_residency)] <- mean(mydata$avg_residency, na.rm=TRUE)
+mydata$avg_childowner[is.na(mydata$avg_childowner)] <- mean(mydata$avg_childowner, na.rm=TRUE)
+mydata$mallsalessf[is.na(mydata$mallsalessf)] <- mean(mydata$mallsalessf, na.rm=TRUE)
+mydata$storesqft[is.na(mydata$storesqft)] <- mean(mydata$storesqft, na.rm=TRUE)
+mydata$totalcases[is.na(mydata$totalcases)] <- mean(mydata$totalcases, na.rm=TRUE)
+mydata$majorcompetitorpresent = ifelse(mydata$majorcompetitorpresent=="Yes",1, ifelse(mydata$majorcompetitorpresent=="No",2, 0))
+mydata$st <- ifelse(is.na(mydata$st),"st", mydata$st)
+mydata$female = ifelse(mydata$sa_gender=="F",1, 0)
+mydata$dependent = ifelse(mydata$sa_dependent=="Yes",1,0)
+mydata$maritalstatus = ifelse(mydata$sa_maritalstatus=="M",1,0)
+mydata$assignmentcategory = ifelse(mydata$sa_assignmentcategory=="FR"| mydata$sa_assignmentcategory=="FT",1,0)
+mydata$yrofservice = log(mydata$sa_yearsofservice+1) 
+mydata$logsalesvalue = log(mydata$salesvalue+1)
+mydata$logreturnvalue = log(mydata$returnvalue+1)
+mydata$logsalesquantity = log(mydata$salesquantity +1)
+mydata$logreturnquantity = log(mydata$returnquantity +1)
+
+#### rate of pay 
+ggplot(mydata, aes(x=sa_rateofpay)) + geom_histogram(colour="green") 
+# divide into two subsets: salespeople & store managers 
+df1 <- subset(mydata, sa_rateofpay < 500) # create a subset df1 containing only salespeople with hourly wage 
+df2 <- subset(mydata, sa_rateofpay > 500) # create a subset df2 containing only managers with biweekly wage 
+ggplot(df1, aes(x=sa_rateofpay)) + geom_histogram(colour="green") 
+ggplot(df2, aes(x=sa_rateofpay)) + geom_histogram(colour="green") 
+summary(df1$sa_rateofpay)
+summary(df2$sa_rateofpay)
+stargazer(df1, type="text", median=TRUE, iqr=TRUE,digits=1, title="Descriptive Statistics")
+stargazer(df2, type="text", median=TRUE, iqr=TRUE,digits=1, title="Descriptive Statistics")  
+
+#### year of service 
+ggplot(df1, aes(x=sa_yearsofservice)) + geom_histogram(colour="green")   
+summary(df1$yrofservice)  
+ggplot(df1, aes(x=yrofservice)) + geom_histogram(colour="green")    # better than original data, use log transformed year of service
+
+ggplot(df2, aes(x=sa_yearsofservice)) + geom_histogram(colour="green")  
+summary(df2$yrofservice) 
+ggplot(df2, aes(x=yrofservice)) + geom_histogram(colour="green") 
+
+#### sales value 
+ggplot(df1, aes(x=salesvalue)) + geom_histogram(colour="green") 
+ggplot(df1, aes(x=logsalesvalue)) + geom_histogram(colour="green")  # use log transformed sales value 
+
+ggplot(df2, aes(x=salesvalue)) + geom_histogram(colour="green") 
+summary(df2$logsalesvalue)
+ggplot(df2, aes(x=logsalesvalue)) + geom_histogram(colour="green")  # use log transformed sales value 
+
+#### sales quantity
+ggplot(df1, aes(x=salesquantity)) + geom_histogram(colour="green") 
+ggplot(df1, aes(x=logsalesquantity)) + geom_histogram(colour="green") 
+
+ggplot(df2, aes(x=salesquantity)) + geom_histogram(colour="green") 
+ggplot(df2, aes(x=logsalesquantity)) + geom_histogram(colour="green") 
+
+#### return value
+ggplot(df1, aes(x=returnvalue)) + geom_histogram(colour="green") 
+ggplot(df1, aes(x=logreturnvalue)) + geom_histogram(colour="green")  # use log transformed return value 
+
+ggplot(df2, aes(x=returnvalue)) + geom_histogram(colour="green") 
+ggplot(df2, aes(x=logreturnvalue)) + geom_histogram(colour="green")  # use log transformed return value 
+
+#### return quantity
+ggplot(df1, aes(x=returnquantity)) + geom_histogram(colour="green") 
+ggplot(df1, aes(x=logreturnquantity)) + geom_histogram(colour="green") 
+
+ggplot(df2, aes(x=returnquantity)) + geom_histogram(colour="green") 
+ggplot(df2, aes(x=logreturnquantity)) + geom_histogram(colour="green") 
+
+#### other variables
+ggplot(df1, aes(x=avg_age)) + geom_histogram(colour="green") 
+ggplot(df1, aes(x=avg_income)) + geom_histogram(colour="green") 
+ggplot(df1, aes(x=avg_homeowner)) + geom_histogram(colour="green") 
+ggplot(df1, aes(x=avg_residency)) + geom_histogram(colour="green") 
+ggplot(df1, aes(x=avg_childowner)) + geom_histogram(colour="green") 
+ggplot(df1, aes(x=numofmonths_worked)) + geom_histogram(colour="green")   # Consider this as a factor variable? 
+ggplot(df1, aes(x=mallsalessf)) + geom_histogram(colour="green") 
+ggplot(df1, aes(x=storesqft)) + geom_histogram(colour="green") 
+ggplot(df1, aes(x=totalcases)) + geom_histogram(colour="green") 
+ggplot(df1, aes(x=padcount)) + geom_histogram(colour="green") 
+
+ggplot(df2, aes(x=avg_age)) + geom_histogram(colour="green") 
+ggplot(df2, aes(x=avg_income)) + geom_histogram(colour="green") 
+ggplot(df2, aes(x=avg_homeowner)) + geom_histogram(colour="green") 
+ggplot(df2, aes(x=avg_residency)) + geom_histogram(colour="green") 
+ggplot(df2, aes(x=avg_childowner)) + geom_histogram(colour="green") 
+ggplot(df2, aes(x=numofmonths_worked)) + geom_histogram(colour="green")   # Consider this as a factor variable? 
+ggplot(df2, aes(x=mallsalessf)) + geom_histogram(colour="green") 
+ggplot(df2, aes(x=storesqft)) + geom_histogram(colour="green") 
+ggplot(df2, aes(x=totalcases)) + geom_histogram(colour="green") 
+ggplot(df2, aes(x=padcount)) + geom_histogram(colour="green") 
+
+#### Categorical variables 
+table(mydata$store_number)
+table(mydata$sa_maritalstatus)    # missing value 34, M 1261, S 6549
+table(mydata$sa_dependent)        # missing value 6628, yes 1216
+table(mydata$sa_assignmentcategory) # PR = 3676, FR=3174, FT=18, PT= 959, Missing value 17
+table(mydata$sa_yearsofservice)   # 0-34 years, 3025 with 1 year of service
+table(mydata$year)                # 2011:2010, 2012:2862, 2013:2972
+table(mydata$numofmonths_worked)
+table(mydata$st)                  # missing value 6612
+table(mydata$mallgrade)           # missing value 6612
+table(mydata$majorcompetitorpresent)   # missing value 6612
+table(mydata$sa_gender)           # F 7187, M 640, missing value 17
+
+# In the 7844 obs. 6612 does not have information on st, mallgrade, storesqft, mallsalessf, totalcases, pad count, majorcompetitorpresent. Exclude these variables from the following analysis, using store number to address the informations on location/mall quality/store size etc.
+
+table(df1$store_number)
+table(df1$sa_maritalstatus)    # missing value 17, M 1174, S 6471
+table(df1$sa_dependent)        # missing value 6539, yes 1123
+table(df1$sa_assignmentcategory) # PR = 3675, FR=3010, FT=18, PT= 959,
+table(df1$sa_yearsofservice)   # 0-31 years, 2999 with 1 year of service
+table(df1$year)                # 2011:1960, 2012:2802, 2013:2900
+table(df1$numofmonths_worked)
+table(df1$sa_gender)           # F 7052, M 610
+
+table(df2$store_number)
+table(df2$sa_maritalstatus)    # M 87, S 78
+table(df2$sa_dependent)        # missing value 72, yes 93
+table(df2$sa_assignmentcategory) # PR = 1, FR=164
+table(df2$sa_yearsofservice)   # 0-34 years
+table(df2$year)                # 2011:46, 2012:57, 2013:62
+table(df2$numofmonths_worked)
+table(df2$sa_gender)           # F 135, M 30
+
+#### Exploratory Plots 
+ggplot(mydata, aes(x=sumoftraining, y=logsalesvalue)) + geom_point(size=2.5)
+ggplot(mydata, aes(x=training, y=logsalesvalue)) + geom_point(size=2.5)
+
+############################## BOX PLOT ###############################
+## Box Plot for Log Sales Value vs. Sum of Training  
+mydata$Sum_of_Training <- as.factor(mydata$sumoftraining)
+ggplot(mydata, aes(x=Sum_of_Training, y=logsalesvalue, fill=Sum_of_Training)) + geom_boxplot() + 
+  xlab("Sum of Training Modules Taken") + ylab("Log of Sales Vlaue")     
+df1$Sum_of_Training <- as.factor(df1$sumoftraining)
+ggplot(df1, aes(x=Sum_of_Training, y=logsalesvalue, fill=Sum_of_Training)) + geom_boxplot() + 
+  xlab("Sum of Training Program Taken") + ylab("Log of Sales Vlaue")   
+df2$Sum_of_Training <- as.factor(df2$sumoftraining)
+ggplot(df2, aes(x=Sum_of_Training, y=logsalesvalue, fill=Sum_of_Training)) + geom_boxplot() + 
+  xlab("Sum of Training Program Taken") + ylab("Log of Sales Vlaue")   
+
+## Log Sales Value vs. Training/No Training
+mydata$Training <- as.factor(mydata$training)
+ggplot(mydata, aes(x=Training, y=logsalesvalue, fill=Training)) + geom_boxplot() + 
+  xlab("Training or No Training") + ylab("Log of Sales Vlaue")  
+df1$Training <- as.factor(df1$training)
+ggplot(df1, aes(x=Training, y=logsalesvalue, fill=Training)) + geom_boxplot() + 
+  xlab("Took At Least One Training Or Not") + ylab("Log of Sales Vlaue")  
+df2$Training <- as.factor(df2$training)
+ggplot(df2, aes(x=Training, y=logsalesvalue, fill=Training)) + geom_boxplot() + 
+  xlab("Took At Least One Training Or Not") + ylab("Log of Sales Vlaue")  
+
+## Log Return Value vs. Sum of Training  
+ggplot(mydata, aes(x=Sum_of_Training, y=logreturnvalue, fill=Sum_of_Training)) + geom_boxplot() + 
+  xlab("Sum of Training Modules Taken") + ylab("Log of Return Vlaue")  
+ggplot(df1, aes(x=Sum_of_Training, y=logreturnvalue, fill=Sum_of_Training)) + geom_boxplot() + 
+  xlab("Sum of Training Program Taken") + ylab("Log of Return Vlaue")  
+ggplot(df2, aes(x=Sum_of_Training, y=logreturnvalue, fill=Sum_of_Training)) + geom_boxplot() + 
+  xlab("Sum of Training Program Taken") + ylab("Log of Return Vlaue")  
+
+## Log Return Value vs. Training/No Training
+ggplot(mydata, aes(x=Training, y=logreturnvalue, fill=Training)) + geom_boxplot() + 
+  xlab("Took At Least One Training Or Not") + ylab("Log of Return Vlaue")
+ggplot(df1, aes(x=Training, y=logreturnvalue, fill=Training)) + geom_boxplot() + 
+  xlab("Took At Least One Training Or Not") + ylab("Log of Return Vlaue")  
+ggplot(df2, aes(x=Training, y=logreturnvalue, fill=Training)) + geom_boxplot() + 
+  xlab("Took At Least One Training Or Not") + ylab("Log of Return Vlaue")  
+
+## Sales Quantity vs. Sum of Training  
+ggplot(mydata, aes(x=Sum_of_Training, y=salesquantity, fill=Sum_of_Training)) + geom_boxplot() + 
+  xlab("Sum of Training Module Taken") + ylab("Sales Quantity")  
+ggplot(df1, aes(x=Sum_of_Training, y=salesquantity, fill=Sum_of_Training)) + geom_boxplot() + 
+  xlab("Sum of Training Program Taken") + ylab("Sales Quantity")    
+ggplot(df2, aes(x=Sum_of_Training, y=salesquantity, fill=Sum_of_Training)) + geom_boxplot() + 
+  xlab("Sum of Training Program Taken") + ylab("Sales Quantity")    
+
+## Sales Quantity vs. Training/No Training
+ggplot(mydata, aes(x=Training, y=salesquantity, fill=Training)) + geom_boxplot() + 
+  xlab("Took At Least One Training Or Not") + ylab("Sales Quantity")  
+ggplot(df1, aes(x=Training, y=salesquantity, fill=Training)) + geom_boxplot() + 
+  xlab("Took At Least One Training Or Not") + ylab("Sales Quantity")  
+ggplot(df2, aes(x=Training, y=salesquantity, fill=Training)) + geom_boxplot() + 
+  xlab("Took At Least One Training Or Not") + ylab("Sales Quantity")  
+
+## Return Quantity vs. Sum of Training  
+ggplot(mydata, aes(x=Sum_of_Training, y=returnquantity, fill=Sum_of_Training)) + geom_boxplot() + 
+  xlab("Sum of Training Modules Taken") + ylab("Return Quantity")  
+ggplot(df1, aes(x=Sum_of_Training, y=returnquantity, fill=Sum_of_Training)) + geom_boxplot() + 
+  xlab("Sum of Training Program Taken") + ylab("Return Quantity")  
+ggplot(df2, aes(x=Sum_of_Training, y=returnquantity, fill=Sum_of_Training)) + geom_boxplot() + 
+  xlab("Sum of Training Program Taken") + ylab("Return Quantity")  
+
+## Return Quantity vs. Training/No Training
+ggplot(mydata, aes(x=Training, y=returnquantity, fill=Training)) + geom_boxplot() + 
+  xlab("Took At Least One Training Or Not") + ylab("Return Quantity")  
+ggplot(df1, aes(x=Training, y=returnquantity, fill=Training)) + geom_boxplot() + 
+  xlab("Took At Least One Training Or Not") + ylab("Return Quantity")  
+ggplot(df2, aes(x=Training, y=returnquantity, fill=Training)) + geom_boxplot() + 
+  xlab("Took At Least One Training Or Not") + ylab("Return Quantity")  
+
+```
+
+#====================================================================================================
+## Question 1: What is the impact of training program on salesperson sales and return performance?
+#====================================================================================================
+```{r}
+df1$StoreNo <- as.factor(df1$store_number)
+df2$StoreNo <- as.factor(df2$store_number)
+df1$program <- ifelse(df1$year==2011,0,1)
+df2$program <- ifelse(df2$year==2011,0,1)
+
+# 1. 
+############################################### Dependent Variable: log of sales value
+# key Indipendent Variable: program (2011 without training modules = 0, 2012 & 2013 with training modules = 1)
+# Interaction term: group (if take at least 1 training module in year 2012 & 2013, 1, otherwise, 0)
+# CV: store_number, female, assignmentcategory, yrofservice, sa_rateofpay, avg_female, avg_age, avg_income, avg_homeowner, avg_childowner, numofmonths_worked
+############################################### df1 Salespeople  2011 vs. 2012, 2013 
+stargazer(df1[c("program", "group", "store_number", "female", "assignmentcategory", "yrofservice", "sa_rateofpay", "avg_female", "avg_age", "avg_income", "avg_homeowner", "avg_residency", "avg_childowner",   "numofmonths_worked")], type="text", median=TRUE, iqr=TRUE,digits=1, title="Descriptive Statistics")
+#### Test Multicolinearity 
+df = df1[c("program", "group", "store_number", "female", "assignmentcategory", "yrofservice", "sa_rateofpay", "avg_female", "avg_age", "avg_income", "avg_homeowner", "avg_residency", "avg_childowner",   "numofmonths_worked")]
+cor(df)
+vifcor(df)   # no multicolinearity 
+
+#### Building Models 
+model1 <- lm(logsalesvalue ~ program*group + StoreNo + female + assignmentcategory + yrofservice + sa_rateofpay + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked, data=df1)
+
+model1a <- lm(logsalesvalue ~ program*group + female + assignmentcategory + yrofservice + sa_rateofpay + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + mallsalessf + totalcases, data=df1)
+
+stargazer(model1, model1a,
+          title="Regression Results", type="text", 
+          column.labels=c("Model1","Model1a"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001))
+
+#### Model Testing 
+anova(model1, model1a, test="Chisq")   # model1 is better 
+# Select model1 as our final model, factor store number, interaction
+
+#### Test or heteroskedasticity
+gqtest(model1) 
+bptest(model1)    # Significant p-value indicates heteroscedasticity
+
+consstder <- sqrt(diag(vcovHC(model1, type="const"))) # produces normal standard errors
+clusrobstder <- sqrt(diag(cluster.vcov(model1, df1$StoreNo))) # produces clustered robust standard errors
+stargazer(model1, 
+          se=list(clusrobstder),
+          title="Regression Results", type="text", 
+          column.labels=c("Clustered SE"),
+          df=FALSE, digits=4, star.cutoffs = c(0.05,0.01,0.001))  
+
+#### The interaction term for program * group is 0.0574, not significant. We do not have a reliable model. 
+
+#### Marginal Effects (No need for this marginal effect plot, this is for reference)
+meffects1 <- ggpredict(model1, terms=c("program", "group")) # generates a tidy data frame  
+
+ggplot(meffects1,aes(x, predicted, colour=group)) + geom_line(size=1.3) + 
+    xlab("Program") + ylab("Predicted Sales ($)") +
+    labs(colour="Taken\nTraining?") + 
+    scale_colour_discrete(labels=c("No", "Yes")) +
+    scale_x_continuous(breaks=c(0,1), labels=c("No Program", "Program"))+ 
+  theme(axis.title.x = element_blank()) 
+############################################### df2 Store Manager 
+#### Test Multicolinearity 
+df = df2[c("program", "group", "store_number", "employee_id", "female", "assignmentcategory", "yrofservice", "maritalstatus", "sa_rateofpay", "dependent", "avg_female", "avg_age", "avg_income", "avg_homeowner", "avg_residency", "avg_childowner",   "numofmonths_worked")]
+cor(df)
+vifcor(df)   # no multicolinearity 
+
+#### Building Models 
+model2 <- lm(logsalesvalue ~ program*group + StoreNo + female + assignmentcategory + yrofservice + sa_rateofpay + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked, data=df2)
+
+stargazer(model2,
+          title="Regression Results", type="text", 
+          column.labels=c("Model1"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001))
+
+#### Test or heteroskedasticity
+gqtest(model2) 
+bptest(model2)    # Do not indicate heteroscedasticity
+
+consstder <- sqrt(diag(vcovHC(model2, type="const"))) # produces normal standard errors
+clusrobstder <- sqrt(diag(cluster.vcov(model2, df2$store_number))) # produces clustered robust standard errors
+
+stargazer(model2 
+          se=list(consstder, clusrobstder),
+          title="Regression Results", type="text", 
+          column.labels=c("Normal SE", "HW-Robust SE", "Clustered SE"),
+          df=FALSE, digits=4, star.cutoffs = c(0.05,0.01,0.001))  
+# coefficient of interaction term for program * group is 0.1598, not significant, with se 0.1262.
+# we do not have a reliable plot. 
+
+#### Marginal Effects  (No Need to draw marginal effects)
+meffects2 <- ggpredict(model2, terms=c("program", "group")) # generates a tidy data frame   
+ggplot(meffects2,aes(x, predicted, colour=group)) + geom_line(size=1.3) + 
+    xlab("Program") + ylab("Predicted Sales ($)") +
+    labs(colour="Taken\nTraining?") + 
+    scale_colour_discrete(labels=c("No", "Yes")) +
+    scale_x_continuous(breaks=c(0,1), labels=c("No Program", "Program")) +
+    theme(axis.title.x=element_blank())# make the plot more self-readable
+
+# 2. 
+########################################### Dependent Variable: Sales Quantity
+# key Indipendent Variable: program (2011 without training modules = 0, 2012 & 2013 with training modules = 1)
+# Interaction term: group
+########################################### df1 salespeople 
+poisson1 <- glm(salesquantity ~ program*group + StoreNo + female + assignmentcategory + yrofservice + sa_rateofpay + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked, family="poisson", data=df1) # The coefficient for num_coupons is .07.This means that the expected log count for a one-unit increase in num_coupons is .07. The indicator variable channel email compares between channel = "email" and channel = "newspaper", the expected log count for prog = "email" increases by about 1.08. The indicator variable channel.mail is the expected difference in log count (approx 0.37) between channel = "mail" and the reference group (channel = "newspaper"). # this is the log count. every additional coupon is associated with 0.07 unit increase in log of quantity.  
+stargazer(poisson1,  
+          title="Regression Results", type="text", 
+          column.labels=c("Poisson1"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001)) 
+
+poisson1a <- glm(salesquantity~1, data=df1, family="poisson") # Run a poisson on null model 
+lrtest(poisson1, poisson1a)     # chi-squared test is 2670604, statistically significant. This model does not fit. 
+
+nb1 <- glm.nb(salesquantity ~ program*group + StoreNo + female + assignmentcategory + yrofservice + sa_rateofpay + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked, data = df1) 
+
+stargazer(nb1,  
+          title="Regression Results", type="text", 
+          column.labels=c("NB1"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001))
+
+nb1a <- glm.nb(salesquantity ~ 1, data = df1) 
+
+lrtest(nb1, nb1a)   # Test significant, model fits the data.
+
+# Choosing between Poisson and Negative Binomial regressions
+lrtest(poisson1, nb1) # Test siginificant, negative binomial model is better than poisson model. 
+
+stargazer(nb1, 
+          apply.coef = exp, t.auto=F, p.auto = F,
+          title="Regression Results", type="text", 
+          column.labels=c("IRRs"),
+          df=FALSE, digits=4, star.cutoffs = c(0.05,0.01,0.001))
+# coefficient of interaction term is not significant. 
+
+# Check for heteroscedasticity
+gqtest(nb1)
+bptest(nb1) # Breusch-Pagan test indicates heteroscedasticity
+
+clusrobstder <- sqrt(diag(cluster.vcov(nb1, df1$store_number)))
+
+stargazer(nb1,  
+          se=list(NULL, clusrobstder),
+          title="Regression Results", type="text", 
+          column.labels=c("Normal SE", "Clusrobstder SE"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001))  
+# coefficient of interaction temr is 0.15, not significant. We do not have a reliable result. 
+
+############################################### df2 Store Manager 
+poisson2 <- glm(salesquantity ~ program*group + StoreNo + female + assignmentcategory + yrofservice + sa_rateofpay + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked, family="poisson", data=df2) 
+
+stargazer(poisson2,  
+          title="Regression Results", type="text", 
+          column.labels=c("Poisson2"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001)) 
+
+poisson2a <- glm(salesquantity~1, data=df2, family="poisson") # Run a poisson on null model 
+
+lrtest(poisson2, poisson2a)     # chi-squared test is statistically significant. This model does not fit. 
+
+nb2 <- glm.nb(salesquantity ~ program*group + StoreNo + female + assignmentcategory + yrofservice + sa_rateofpay + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked, data=df2) 
+
+stargazer(nb2,  
+          title="Regression Results", type="text", 
+          column.labels=c("NB2"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001))
+
+nb2a <- glm.nb(salesquantity ~ 1, data = df2) 
+lrtest(nb2, nb2a)   # Test significant, model fits the data.
+
+# Choosing between Poisson and Negative Binomial regressions
+lrtest(poisson2, nb2) # Test siginificant, negative binomial model is better than poisson model. 
+
+# Check for heteroscedasticity
+gqtest(nb2)
+bptest(nb2) # Does not indicate heteroscedasticity
+
+clusrobstder <- sqrt(diag(cluster.vcov(nb1, df1$store_number)))
+
+stargazer(nb2,
+          se=list( clusrobstder),
+          title="Regression Results", type="text", 
+          column.labels=c("Clusrobstder SE"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001))  
+# coefficient of interaction temr is 0.27, Significant. with se 0.11
+# For sales quantity, nb model is a reliable model. We can continue our analysis
+
+stargazer(nb2, 
+          se=list(clusrobstder),
+          apply.coef = exp, t.auto=F, p.auto = F,
+          title="Regression Results", type="text", 
+          column.labels=c("IRRs Clusrobster SE"),
+          df=FALSE, digits=4, star.cutoffs = c(0.05,0.01,0.001))
+#### coefficient turn to be not significant, we do not have a good results. 
+
+# Visualize the output
+meffects4 <- ggpredict(nb2, terms=c("program","group")) # generates a tidy data frame at three different values of competence 
+ggplot(meffects4, aes(x, predicted, colour=group)) + geom_line(size=1.3) +
+   xlab("Program") + ylab("Predicted Sales Quantity") +
+    labs(colour="Taken\nTraining?") + 
+    scale_colour_discrete(labels=c("No", "Yes")) +
+    scale_x_continuous(breaks=c(0,1), labels=c("No Program", "Program"))+ 
+  theme(axis.title.x = element_blank()) # make the plot more self-readable
+# this marginal plot does not make sense, our model is not reliable. 
+
+# 3. 
+########################################################### Dependent Variable: log of return value
+# key Indipendent Variable: program (2011 without training modules = 0, 2012 & 2013 with training modules = 1)
+# Interaction term: group (if take at least 1 training module, 1, otherwise, 0)
+############################################### df1 Salespeople 
+#### Test Multicolinearity 
+df = df1[c("program", "group", "store_number", "female", "assignmentcategory", "yrofservice", "sa_rateofpay", "avg_female", "avg_age", "avg_income", "avg_homeowner", "avg_residency", "avg_childowner",   "numofmonths_worked","salesvalue")]
+cor(df)
+vifcor(df)   # No multicoliearity 
+
+#### Building Models 
+model3 <- lm(logreturnvalue ~ program*group + StoreNo + female + assignmentcategory + yrofservice + sa_rateofpay + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + logsalesvalue, data=df1)
+
+stargazer(model3,
+          title="Regression Results", type="text", 
+          column.labels=c("Model3"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001))
+
+#### Test or heteroskedasticity
+gqtest(model3) 
+bptest(model3)    # Significant p-value indicates heteroscedasticity
+
+consstder <- sqrt(diag(vcovHC(model3, type="const"))) # produces normal standard errors
+clusrobstder <- sqrt(diag(cluster.vcov(model3, df1$store_number))) # produces clustered robust standard errors
+
+stargazer(model3,  
+          se=list( clusrobstder),
+          title="Regression Results", type="text", 
+          column.labels=c("Clustered SE"),
+          df=FALSE, digits=4, star.cutoffs = c(0.05,0.01,0.001))  
+## coefficient of the interaction term is -0.2870, significant, Se is 0.1335 
+
+#### Marginal Effects 
+meffects4 <- ggpredict(model3, terms=c("program", "group")) # generates a tidy data frame  
+
+ggplot(meffects4,aes(x, predicted, colour=group)) + geom_line(size=1.3) + 
+    xlab("Program") + ylab("Predicted Return Value") +
+    labs(colour="Taken\nTraining?") + 
+    scale_colour_discrete(labels=c("No", "Yes")) +
+    scale_x_continuous(breaks=c(0,1), labels=c("No Program", "Program"))+ 
+  theme(axis.title.x = element_blank()) # make the plot more self-readable
+#### Interpretation: the impact of group(training) on return values decreases as program increases. The impact of program on return vlaue is less on not trained. 
+
+############################################### df2 Store Manager 
+#### Test Multicolinearity 
+df = df2[c("program", "group", "store_number", "female", "assignmentcategory", "yrofservice",  "sa_rateofpay",  "avg_female", "avg_age", "avg_income", "avg_homeowner", "avg_residency", "avg_childowner",   "numofmonths_worked","salesvalue")]
+cor(df)
+vifcor(df)  # No multicoliearity 
+
+#### Building Models 
+model4 <- lm(logreturnvalue ~ program*group + StoreNo + female + assignmentcategory + yrofservice + sa_rateofpay + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + logsalesvalue, data=df2)
+
+stargazer(model4,
+          title="Regression Results", type="text", 
+          column.labels=c("Model4"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001))
+
+#### Test or heteroskedasticity
+gqtest(model4) 
+bptest(model4)    # Does not indicate heteroscedasticity
+
+# This coefficient is -0.97 and not significant, hence we do not have a reliable result. 
+  
+# 4. 
+######################################################### Dependent Variable: Return Quantity 
+# key Indipendent Variable: program (2011 without training modules = 0, 2012 & 2013 with training modules = 1)
+# Interaction term: group 
+######################################################### df1 Salespeople
+poisson2_1 <- glm(returnquantity ~ program*group + StoreNo + female + assignmentcategory + yrofservice + sa_rateofpay + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + salesquantity, family="poisson", data=df1) 
+
+stargazer(poisson2_1,  
+          title="Regression Results", type="text", 
+          column.labels=c("Poisson2_1"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001)) 
+
+poisson2_1a <- glm(returnquantity~1, data=df1, family="poisson") # Run a poisson on null model 
+
+lrtest(poisson2_1, poisson2_1a)     # statistically significant. This model does not fit. 
+
+nb2_1 <- glm.nb(returnquantity ~ program*group + StoreNo + female + assignmentcategory + yrofservice + sa_rateofpay + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + salesquantity, data = df1) 
+
+stargazer(nb2_1,  
+          title="Regression Results", type="text", 
+          column.labels=c("NB2_1"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001))
+
+nb2_1a <- glm.nb(returnquantity ~ 1, data = df1) 
+lrtest(nb2_1, nb2_1a)   # Test significant, model fits the data.
+
+# Choosing between Poisson and Negative Binomial regressions
+lrtest(poisson2_1, nb2_1) # Test siginificant, negative binomial model is better than poisson model. 
+
+# Check for heteroscedasticity
+gqtest(nb2_1)
+bptest(nb2_1) # Breusch-Pagan test indicates heteroscedasticity
+
+clusrobstder <- sqrt(diag(cluster.vcov(nb2_1, df1$store_number)))
+
+stargazer(nb2_1,  
+          apply.coef = exp, t.auto=F, p.auto = F,
+          se=list(clusrobstder),
+          title="Regression Results", type="text", 
+          column.labels=c("IRRs with Clustrobust SE"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001))  
+# coefficient of interaction term is -0.3, significant, with se = 0.07. IRR for the interaction term is 0.74, siginificant. 
+
+# Visualize the output
+meffects_RQ1 <- ggpredict(nb2_1, terms=c("program","group")) 
+ggplot(meffects_RQ1,aes(x, predicted, colour=group)) + geom_line(size=1.3) +
+   xlab("Program") + ylab("Predicted Return Quantity") +
+    labs(colour="Taken\nTraining?") + 
+    scale_colour_discrete(labels=c("No", "Yes")) +
+    scale_x_continuous(breaks=c(0,1), labels=c("No Program", "Program"))+ 
+  theme(axis.title.x = element_blank()) # make the plot more self-readable
+#### Interpretation: the impact of group(training) on return values decreases as program increases. The impact of program on return vlaue is less on not trained employees. 
+
+############################################### df2 Store Manager 
+poisson2_2 <- glm(returnquantity ~ program*group + StoreNo + female + assignmentcategory + yrofservice + sa_rateofpay + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + salesquantity, family="poisson", data=df2)
+stargazer(poisson2_2,  
+          title="Regression Results", type="text", 
+          column.labels=c("Poisson2_2"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001)) 
+
+poisson2_2a <- glm(returnquantity~1, data=df2, family="poisson") # Run a poisson on null model 
+
+lrtest(poisson2_2, poisson2_2a)     # chi-squared test is statistically significant. This model does not fit. 
+
+nb2_2 <- glm.nb(returnquantity ~ program*group + StoreNo + female + assignmentcategory + yrofservice + sa_rateofpay + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + salesquantity, data = df2) 
+
+stargazer(nb2_2,  
+          title="Regression Results", type="text", 
+          column.labels=c("NB2_2"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001))
+
+nb2_2a <- glm.nb(returnquantity ~ 1, data = df2) 
+lrtest(nb2_2, nb2_2a)   # Test significant, model fits the data.
+
+# Choosing between Poisson and Negative Binomial regressions
+lrtest(poisson2_2, nb2_2) # Test siginificant, negative binomial model is better than poisson model. 
+
+# Check for heteroscedasticity
+gqtest(nb2_2)
+bptest(nb2_2) # Does not indicate heteroscedasticity
+stargazer(nb2_2, 
+          apply.coef = exp, t.auto=F, p.auto = F,
+          title="Regression Results", type="text", 
+          column.labels=c("IRRs"),
+          df=FALSE, digits=4, star.cutoffs = c(0.05,0.01,0.001))
+# The coefficient is not siginificant. We do not have a good reuslt. 
+```
+#===========================================================================================================================
+## Question 2: What is the impact of completing at least one training module on salesperson sales and return performance?
+#===========================================================================================================================
+```{r}
+df1$Group <- as.factor(df1$group)
+ggplot(df1, aes(x=Group, y=logsalesvalue, fill=Group)) + geom_boxplot() + 
+  xlab("At Least One Training") + ylab("Log of Sales Vlaue")  
+
+df2$Group <- as.factor(df2$group)
+ggplot(df2, aes(x=Group, y=logsalesvalue, fill=Group)) + geom_boxplot() + 
+  xlab("At Least One Training") + ylab("Log of Sales Vlaue")
+
+## Endogeneity exists
+## Possible IV's: maritalstatus, dependent 
+df1_q2 <- subset(df1, year==2012|year==2013) # salespeople data subset
+df2_q2 <- subset(df2, year==2012|year==2013) # store manager data subset
+########################################### 1. Dependent Variable: Sales Value
+# key Indipendent Variable: group
+########################################### df1 salespeople 
+df = df1_q2[c("group", "female", "assignmentcategory", "yrofservice", "sa_rateofpay", "dependent", "avg_female", "avg_age", "avg_income", "avg_homeowner", "avg_residency", "avg_childowner","numofmonths_worked", "mallsalessf", "storesqft", "totalcases")]
+cor(df)
+vifcor(df)  # no multicoliearity 
+
+model5 <- ivreg(logsalesvalue ~ group + female + assignmentcategory + yrofservice + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + dependent + sa_rateofpay + mallsalessf + storesqft + totalcases|maritalstatus + dependent + sa_rateofpay + female + assignmentcategory + yrofservice + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + mallsalessf + storesqft + totalcases, data=df1_q2) # maritalstatus as IV, mallsalessf, storesqft, totalcases
+
+model5a <- ivreg(logsalesvalue ~ group + female + assignmentcategory + yrofservice + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + sa_rateofpay + maritalstatus + mallsalessf + storesqft + totalcases|dependent + maritalstatus + sa_rateofpay+ female + assignmentcategory + yrofservice + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + mallsalessf + storesqft + totalcases, data=df1_q2) # dependent as IV 
+
+model5b <- ivreg(logsalesvalue ~ group + female + assignmentcategory + yrofservice + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + sa_rateofpay + mallsalessf + storesqft + totalcases|dependent + maritalstatus + female + assignmentcategory + yrofservice + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + sa_rateofpay + mallsalessf + storesqft + totalcases, data=df1_q2) # dependent & maritalstatus as IVs 
+
+stargazer(model5, model5a, model5b, 
+          title="Regression Results", type="text", 
+          column.labels=c("2SLS-1","2SLS-a","2SLS-b"),
+          df=FALSE, digits=4, star.cutoffs = c(0.05,0.01,0.001))
+
+summary(model5,diagnostics = TRUE)  # The Weak instrument test is greater than 10, indicating the instrument relevant. Hasuman test past. we can use this instrument 
+summary(model5a,diagnostics = TRUE) # F-test is less than 10. this instrument is not relevant 
+summary(model5b,diagnostics = TRUE) # The Weak instrument test is greater than 10, indicating the instrument relevant. Passed Hausman test, Sargan insignificant. We can use these two instruments. 
+df = df1_q2[c("logsalesvalue","group","maritalstatus","dependent")]
+cor(df) # check the correlation, marital status is a reasonable IV
+# we choose marital stauts and dependent to be the instrument, and the coeffiecient for group is 8.9806471, siginificant. 
+
+## Heteroscedasticity
+gqtest(model5b)  
+bptest(model5b) # significant, implying there is heteroscedasticity
+HWrobstder <- sqrt(diag(vcovHC(model5b, type="HC1"))) # produces Huber-White robust standard errors 
+stargazer(model5b, 
+          se=list(HWrobstder),
+          title="Regression Results", type="text", 
+          column.labels=c("HW-Robust SE"),
+          df=FALSE, digits=4, star.cutoffs = c(0.05,0.01,0.001)) 
+# 8.9806, significant
+
+#### Marginal Effect 
+df1_q2$pred <- predict(model5b) 
+ggplot(df1_q2, aes(x=Group, y=pred, fill=Group)) + geom_boxplot() +
+  xlab("At Least One Training") + ylab("Predicted Sales Value")
+
+df = data.frame(group = seq(0,1,1), female=mean(df1_q2$female), assignmentcategory=mean(df1_q2$assignmentcategory), yrofservice=mean(df1_q2$yrofservice), avg_female=mean(df1_q2$avg_female), avg_age=mean(df1_q2$avg_age), avg_homeowner=mean(df1_q2$avg_homeowner), avg_residency=mean(df1_q2$avg_residency), avg_childowner=mean(df1_q2$avg_childowner), avg_income=mean(df1_q2$avg_income) , numofmonths_worked=mean(df1_q2$numofmonths_worked), sa_rateofpay = mean(df1_q2$sa_rateofpay), mallsalessf =mean(df1_q2$mallsalessf), storesqft=mean(df1_q2$storesqft), totalcases = mean(df1_q2$totalcases), dependent=mean(df1_q2$dependent), maritalstatus=mean(df1_q2$maritalstatus))
+
+df$predicted_sales <- predict(model5b,newdata=df) # We generate predicted values for the new dataset
+# define the newdata, otherwise it will generate data on the old data frame. 
+# check  df3 dataset 
+ggplot(df, aes(x=group,y=predicted_sales)) + geom_point(size=2.3) + geom_line() +
+  xlab("At Least One Training") + ylab("Predicted Sales Value") +
+scale_x_continuous(breaks=c(0,1), labels=c("No Training", "Training >=1"))+
+  theme(axis.title.x = element_blank())
+
+########################################### df2 store manager 
+df = df2_q2[c("group", "female", "assignmentcategory", "yrofservice", "sa_rateofpay", "avg_female", "avg_age", "avg_income", "avg_homeowner", "avg_residency", "avg_childowner","numofmonths_worked", "mallsalessf", "storesqft", "totalcases")]
+cor(df)
+vifcor(df) # no 
+
+model6 <- ivreg(logsalesvalue ~ group + female + assignmentcategory + yrofservice + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + dependent + sa_rateofpay + mallsalessf + storesqft + totalcases|maritalstatus + dependent + sa_rateofpay + female + assignmentcategory + yrofservice + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + mallsalessf + storesqft + totalcases, data=df2_q2) # maritalstatus as IV, mallsalessf, storesqft, totalcases
+
+model6a <- ivreg(logsalesvalue ~ group + female + assignmentcategory + yrofservice + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + sa_rateofpay + maritalstatus + mallsalessf + storesqft + totalcases|dependent + maritalstatus + sa_rateofpay+ female + assignmentcategory + yrofservice + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + mallsalessf + storesqft + totalcases, data=df2_q2) # dependent as IV 
+
+model6b <- ivreg(logsalesvalue ~ group + female + assignmentcategory + yrofservice + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + sa_rateofpay + mallsalessf + storesqft + totalcases|dependent + maritalstatus + female + assignmentcategory + yrofservice + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + sa_rateofpay + mallsalessf + storesqft + totalcases, data=df2_q2) # dependent & maritalstatus as IVs 
+
+stargazer(model6, model6a, model6b, 
+          title="Regression Results", type="text", 
+          column.labels=c("2SLS-1","2SLS-a","2SLS-b"),
+          df=FALSE, digits=4, star.cutoffs = c(0.05,0.01,0.001))
+
+summary(model6,diagnostics = TRUE)  # The Weak instrument test is less than 10, indicating the instrument is not relevant. 
+summary(model6a,diagnostics = TRUE) # F-test is less than 10. this instrument is not relevant 
+summary(model6b,diagnostics = TRUE) # F-test is less than 10. 
+df = df1_q2[c("logsalesvalue","group","maritalstatus")]
+cor(df) 
+#### both instruments are weak instruments. We do not have a reasoanble IV for this dataset. 
+#### In order to continue the analysis, we assume the endogeneity is negligible, and continue our analysis with OLS.   
+
+# try OLS 
+model6c <- lm(logsalesvalue ~ group + female + assignmentcategory + yrofservice + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + sa_rateofpay + mallsalessf + storesqft + totalcases, data=df2_q2)
+stargazer(model6c, 
+          title="Regression Results", type="text", 
+          column.labels=c("OLS-1"),
+          df=FALSE, digits=4, star.cutoffs = c(0.05,0.01,0.001))
+# The coefficient for group is 1.9307, significant.
+## Heteroscedasticity
+gqtest(model6c)  
+bptest(model6c) # significant, implying there is heteroscedasticity
+HWrobstder <- sqrt(diag(vcovHC(model6c, type="HC1"))) # produces Huber-White robust standard errors 
+stargazer(model6c, 
+          se=list(HWrobstder),
+          title="Regression Results", type="text", 
+          column.labels=c("HW-Robust SE"),
+          df=FALSE, digits=4, star.cutoffs = c(0.05,0.01,0.001))
+
+## marginal effect
+meffect <- ggpredict(model6c, term=c("group"))
+ggplot(meffect,aes(x, predicted)) + geom_line(size=1.3) + 
+  xlab("Training") + ylab("Predicted Sales ($)") +
+  scale_x_continuous(breaks=c(0,1), labels=c("No Training", "Training"))+ 
+  theme(axis.title.x = element_blank()) # make the plot more self-readable
+
+########################################### 2. Dependent Variable: Sales Quantity
+########################################### df1 salespeople 
+df = df1_q2[c("group", "female", "assignmentcategory", "yrofservice", "sa_rateofpay", "avg_female", "avg_age", "avg_income", "avg_homeowner", "avg_residency", "avg_childowner",  "numofmonths_worked", "mallsalessf", "storesqft", "totalcases")]
+cor(df)
+vif(df)
+
+poisson3_1 <- glm(salesquantity ~ group + female + assignmentcategory + yrofservice + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + sa_rateofpay + mallsalessf + storesqft + totalcases, data=df1_q2, family="poisson")
+
+poisson3_1a <- glm(salesquantity~1, data=df1_q2, family="poisson") # Run a poisson on null model 
+
+lrtest(poisson3_1, poisson3_1a)     # statistically significant. This model does not fit. 
+
+nb3_1 <- glm.nb(salesquantity ~ group + female + assignmentcategory + yrofservice + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + sa_rateofpay + mallsalessf + storesqft + totalcases, data=df1_q2) 
+
+nb3_1a <- glm.nb(salesquantity ~ 1, data = df1_q2) 
+lrtest(nb3_1, nb3_1a)   # Test significant, model fits the data
+
+# Choosing between Poisson and Negative Binomial regressions
+lrtest(poisson3_1, nb3_1) # Test siginificant, negative binomial model is better than poisson model. 
+
+# Compare with OLS 
+nb_model3_1 <- lm(logsalesquantity ~ group + female + assignmentcategory + yrofservice + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + sa_rateofpay + mallsalessf + storesqft + totalcases, data=df1_q2)
+stargazer(nb3_1, nb_model3_1,
+          title="Regression Results", type="text", 
+          column.labels=c("NB","OLS"),
+          df=FALSE, digits=4, star.cutoffs = c(0.05,0.01,0.001))
+# nb coefficient 0.0573, insignificant
+# OLS coefficient 0.5303, significant
+confint(nb3_1, 'group') # coefficient from OLS is not in the confidence intercal of nb coefficient
+# -0.08172196  0.19985062 
+
+# In order to continue our analysis, we still using OLS to approximate endogeneity in the negative binomial model. 
+OLS1 <- ivreg(logsalesquantity ~ group + female + assignmentcategory + yrofservice + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + dependent + sa_rateofpay + mallsalessf + storesqft + totalcases|maritalstatus + dependent + sa_rateofpay + female + assignmentcategory + yrofservice + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + mallsalessf + storesqft + totalcases, data=df1_q2) # maritalstatus as IV, mallsalessf, storesqft, totalcases
+
+OLS1a <- ivreg(logsalesquantity ~ group + female + assignmentcategory + yrofservice + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + sa_rateofpay + maritalstatus + mallsalessf + storesqft + totalcases|dependent + maritalstatus + sa_rateofpay+ female + assignmentcategory + yrofservice + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + mallsalessf + storesqft + totalcases, data=df1_q2) # dependent as IV 
+
+OLS1b <- ivreg(logsalesquantity ~ group + female + assignmentcategory + yrofservice + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + sa_rateofpay + mallsalessf + storesqft + totalcases|dependent + maritalstatus + female + assignmentcategory + yrofservice + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + sa_rateofpay + mallsalessf + storesqft + totalcases, data=df1_q2) # dependent & maritalstatus as IVs 
+
+stargazer(OLS1, OLS1a, OLS1b, 
+          title="Regression Results", type="text", 
+          column.labels=c("OLS1","OLS1a","OLS1b"),
+          df=FALSE, digits=4, star.cutoffs = c(0.05,0.01,0.001))
+
+summary(OLS1,diagnostics = TRUE)  # The Weak instrument test is greater than 10, passed Hausman test, passed Wald test.  
+summary(OLS1a,diagnostics = TRUE) # F-test is less than 10. this instrument is not relevant 
+summary(OLS1b,diagnostics = TRUE) # The Weak instrument test is greater than 10, passed Hausman test, passed Wald test. Sargan insignificant. 
+# Our final model is OLS1b with 2 instruments 
+df = df1_q2[c("logsalesvalue","group","maritalstatus","dependent")]
+cor(df) 
+  
+## Heteroscedasticity
+gqtest(OLS1b)  
+bptest(OLS1b) # significant, implying there is heteroscedasticity
+HWrobstder <- sqrt(diag(vcovHC(OLS1b, type="HC1"))) # produces Huber-White robust standard errors 
+stargazer(OLS1b, 
+          se=list(HWrobstder),
+          title="Regression Results", type="text", 
+          column.labels=c("HW-Robust SE"),
+          df=FALSE, digits=4, star.cutoffs = c(0.05,0.01,0.001)) 
+#### the coefficient is 3.5202, significant.
+
+#### Marginal Effect 
+df1_q2$pred2 <- predict(OLS1b) 
+ggplot(df1_q2, aes(x=Group, y=pred2, fill=Group)) + geom_boxplot() +
+  xlab("At Least One Training") + ylab("Predicted Sales Quantity")
+
+df = data.frame(group = seq(0,1,1), female=mean(df1_q2$female), assignmentcategory=mean(df1_q2$assignmentcategory), yrofservice=mean(df1_q2$yrofservice), avg_female=mean(df1_q2$avg_female), avg_age=mean(df1_q2$avg_age), avg_homeowner=mean(df1_q2$avg_homeowner), avg_residency=mean(df1_q2$avg_residency), avg_childowner=mean(df1_q2$avg_childowner), avg_income=mean(df1_q2$avg_income) , numofmonths_worked=mean(df1_q2$numofmonths_worked), sa_rateofpay = mean(df1_q2$sa_rateofpay), mallsalessf =mean(df1_q2$mallsalessf), storesqft=mean(df1_q2$storesqft), totalcases = mean(df1_q2$totalcases), dependent=mean(df1_q2$dependent), maritalstatus=mean(df1_q2$maritalstatus))
+
+df$predicted_sales2 <- predict(OLS1b,newdata=df) # We generate predicted values for the new dataset
+# define the newdata, otherwise it will generate data on the old data frame. 
+# check  df3 dataset 
+ggplot(df, aes(x=group,y=predicted_sales2)) + geom_point() + 
+geom_line(size=1.3) + 
+  xlab("Training") + ylab("Predicted Sales Quantity") +
+  scale_x_continuous(breaks=c(0,1), labels=c("No Training", "Training"))+ 
+  theme(axis.title.x = element_blank()) # make the plot more self-readable
+
+########################################### df2 store manager 
+df = df2_q2[c("group", "female", "assignmentcategory", "yrofservice", "sa_rateofpay", "avg_female", "avg_age", "avg_income", "avg_homeowner", "avg_residency", "avg_childowner",  "numofmonths_worked", "mallsalessf", "storesqft", "totalcases")]
+cor(df)
+vifcor(df)
+
+poisson3_2 <- glm(salesquantity ~ group + female + assignmentcategory + yrofservice + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + sa_rateofpay + mallsalessf + storesqft + totalcases, data=df2_q2, family="poisson")
+
+poisson3_2a <- glm(salesquantity~1, data=df2_q2, family="poisson") # Run a poisson on null model 
+
+lrtest(poisson3_2, poisson3_2a)     # statistically significant. This model does not fit. 
+
+nb3_2 <- glm.nb(salesquantity ~ group + female + assignmentcategory + yrofservice + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + sa_rateofpay + mallsalessf + storesqft + totalcases, data=df2_q2) 
+
+nb3_2a <- glm.nb(salesquantity ~ 1, data = df2_q2) 
+lrtest(nb3_2, nb3_2a)   # Test significant, model fits the data
+
+# Choosing between Poisson and Negative Binomial regressions
+lrtest(poisson3_2, nb3_2) # Test siginificant, negative binomial model is better than poisson model. 
+
+# Compare with OLS 
+nb_model3_2 <- lm(logsalesquantity ~ group + female + assignmentcategory + yrofservice + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + sa_rateofpay + mallsalessf + storesqft + totalcases, data=df2_q2)
+stargazer(nb3_2, nb_model3_2,
+          title="Regression Results", type="text", 
+          column.labels=c("NB","OLS"),
+          df=FALSE, digits=4, star.cutoffs = c(0.05,0.01,0.001))
+# nb coefficient 0.6479, significant
+# OLS coefficient 0.8481, significant
+confint(nb3_2, 'group') # coefficient from OLS isin the confidence intercal of nb coefficient
+# 0.08170337 1.20936276 
+# use 2SLS to address the endogeneity in the negative binomial model. 
+
+OLS2 <- ivreg(logsalesquantity ~ group + female + assignmentcategory + yrofservice + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + dependent + sa_rateofpay + mallsalessf + storesqft + totalcases|maritalstatus + dependent + sa_rateofpay + female + assignmentcategory + yrofservice + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + mallsalessf + storesqft + totalcases, data=df2_q2) # maritalstatus as IV, mallsalessf, storesqft, totalcases
+
+OLS2a <- ivreg(logsalesquantity ~ group + female + assignmentcategory + yrofservice + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + sa_rateofpay + maritalstatus + mallsalessf + storesqft + totalcases|dependent + maritalstatus + sa_rateofpay+ female + assignmentcategory + yrofservice + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + mallsalessf + storesqft + totalcases, data=df2_q2) # dependent as IV 
+
+OLS2b <- ivreg(logsalesquantity ~ group + female + assignmentcategory + yrofservice + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + sa_rateofpay + mallsalessf + storesqft + totalcases|dependent + maritalstatus + female + assignmentcategory + yrofservice + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + sa_rateofpay + mallsalessf + storesqft + totalcases, data=df2_q2) # dependent & maritalstatus as IVs 
+
+stargazer(OLS2, OLS2a, OLS2b, 
+          title="Regression Results", type="text", 
+          column.labels=c("OLS2","OLS2a","OLS2b"),
+          df=FALSE, digits=4, star.cutoffs = c(0.05,0.01,0.001))
+
+summary(OLS2,diagnostics = TRUE)  # F-test is less than 10. this instrument is not relevant 
+summary(OLS2a,diagnostics = TRUE) # F-test is less than 10. this instrument is not relevant 
+summary(OLS2b,diagnostics = TRUE) # F-test is less than 10. this instrument is not relevant
+# We do not have a reasonble IV to address the endogeneity. All of our instruments are weak instruments. 
+# To proceed with our analysis, we assume the endogeineity is negligible. 
+
+# Go with OLS 
+OLS2c <- lm(logsalesquantity ~ group + female + assignmentcategory + yrofservice + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + sa_rateofpay + mallsalessf + storesqft + totalcases, data=df2_q2)
+  
+## Heteroscedasticity
+gqtest(OLS2c)  
+bptest(OLS2c) # Indicate No heteroscedasticity
+stargazer(OLS2c,
+          title="Regression Results", type="text", 
+          column.labels=c("OLS"),
+          df=FALSE, digits=4, star.cutoffs = c(0.05,0.01,0.001))
+# OLS coefficient 0.8481, significant
+
+# marginal effect 
+meffects3 <- ggpredict(OLS2c, terms=c("group")) 
+ggplot(meffects3,aes(x, predicted)) + geom_line(size=1.3) +
+  xlab("Group") + ylab("Predicted Sales Quantity") +
+  labs(colour="Taken\nTraining?") + 
+  scale_colour_discrete(labels=c("No", "Yes")) +
+  scale_x_continuous(breaks=c(0,1), labels=c("No Training", "Training"))+
+  theme(axis.title.x = element_blank())
+
+########################################### 3. Dependent Variable: Return Value
+########################################### df1 salespeople 
+df = df1_q2[c("group", "female", "assignmentcategory", "yrofservice", "sa_rateofpay", "dependent", "avg_female", "avg_age", "avg_income", "avg_homeowner", "avg_residency", "avg_childowner","numofmonths_worked", "mallsalessf", "storesqft", "totalcases")]
+cor(df)
+vifcor(df)  # no multicoliearity 
+
+model7 <- ivreg(logreturnvalue ~ group + female + assignmentcategory + yrofservice + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + dependent + sa_rateofpay + mallsalessf + storesqft + totalcases + logsalesvalue|maritalstatus + dependent + sa_rateofpay + female + assignmentcategory + yrofservice + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + mallsalessf + storesqft + totalcases + logsalesvalue, data=df1_q2) # maritalstatus as IV, mallsalessf, storesqft, totalcases
+
+model7a <- ivreg(logreturnvalue ~ group + female + assignmentcategory + yrofservice + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + sa_rateofpay + maritalstatus + mallsalessf + storesqft + totalcases + logsalesvalue|dependent + maritalstatus + sa_rateofpay+ female + assignmentcategory + yrofservice + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + mallsalessf + storesqft + totalcases + logsalesvalue, data=df1_q2) # dependent as IV 
+
+model7b <- ivreg(logreturnvalue ~ group + female + assignmentcategory + yrofservice + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + sa_rateofpay + mallsalessf + storesqft + totalcases + logsalesvalue|dependent + maritalstatus + female + assignmentcategory + yrofservice + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + sa_rateofpay + mallsalessf + storesqft + totalcases + logsalesvalue, data=df1_q2) # dependent & maritalstatus as IVs 
+
+stargazer(model7, model7a, model7b, 
+          title="Regression Results", type="text", 
+          column.labels=c("2SLS-1","2SLS-a","2SLS-b"),
+          df=FALSE, digits=4, star.cutoffs = c(0.05,0.01,0.001))
+
+summary(model7,diagnostics = TRUE)  # Failed Hasuman test.
+summary(model7a,diagnostics = TRUE) # F-test is less than 10. this instrument is not relevant 
+summary(model7b,diagnostics = TRUE) # F-test is less than 10. 
+# We donot have good IV's. 
+# Since all of our IV's are weak instruments, we do not have good IV's for the 2SLS model. In order to preceed with our analsyis, we assume the impact of endogeneity is negligible, and proceed with OLS model. 
+
+model7c <- lm(logreturnvalue ~ group + female + assignmentcategory + yrofservice + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + sa_rateofpay + maritalstatus + dependent + mallsalessf + storesqft + totalcases + logsalesquantity, data=df1_q2)
+stargazer(model7c, 
+          title="Regression Results", type="text", 
+          column.labels=c("OLS-1"),
+          df=FALSE, digits=4, star.cutoffs = c(0.05,0.01,0.001))
+
+## Heteroscedasticity
+gqtest(model7c)  
+bptest(model7c) # significant, implying there is heteroscedasticity
+
+consstder <- sqrt(diag(vcovHC(model7c, type="const"))) # produces normal standard errors
+HWrobstder <- sqrt(diag(vcovHC(model7c, type="HC1"))) # produces Huber-White robust standard errors 
+
+stargazer(model7c, 
+          se=list(HWrobstder),
+          title="Regression Results", type="text", 
+          column.labels=c("HW-Robust SE"),
+          df=FALSE, digits=4, star.cutoffs = c(0.05,0.01,0.001)) 
+# The coefficient for group is 2.6053, significant. with Se 0.0914
+
+#### Marginal Effect 
+meffects6 <- ggpredict(model7c, term=c("group"))
+ggplot(meffects5,aes(x, predicted)) + geom_line(size=1.3) +
+   ylab("Predicted Return Value") +
+  scale_x_continuous(breaks=c(0,1), labels=c("No Training", "Training"))+
+  theme(axis.title.x = element_blank())
+
+########################################### df2 store manager 
+df = df2_q2[c("group", "female", "assignmentcategory", "yrofservice", "sa_rateofpay", "avg_female", "avg_age", "avg_income", "avg_homeowner", "avg_residency", "avg_childowner","numofmonths_worked", "mallsalessf", "storesqft", "totalcases")]
+cor(df)
+vifcor(df) # no 
+
+model8 <- ivreg(logreturnvalue ~ group + female + assignmentcategory + yrofservice + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + dependent + sa_rateofpay + mallsalessf + storesqft + totalcases + logsalesvalue |maritalstatus + dependent + sa_rateofpay + female + assignmentcategory + yrofservice + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + mallsalessf + storesqft + totalcases + logsalesvalue, data=df2_q2) # maritalstatus as IV, mallsalessf, storesqft, totalcases
+
+model8a <- ivreg(logreturnvalue ~ group + female + assignmentcategory + yrofservice + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + sa_rateofpay + maritalstatus + mallsalessf + storesqft + totalcases + logsalesvalue|dependent + maritalstatus + sa_rateofpay+ female + assignmentcategory + yrofservice + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + mallsalessf + storesqft + totalcases + logsalesvalue, data=df2_q2) # dependent as IV 
+
+model8b <- ivreg(logreturnvalue ~ group + female + assignmentcategory + yrofservice + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + sa_rateofpay + mallsalessf + storesqft + totalcases + logsalesvalue|dependent + maritalstatus + female + assignmentcategory + yrofservice + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + sa_rateofpay + mallsalessf + storesqft + totalcases + logsalesvalue, data=df2_q2) # dependent & maritalstatus as IVs 
+
+stargazer(model8, model8a, model8b, 
+          title="Regression Results", type="text", 
+          column.labels=c("2SLS-1","2SLS-a","2SLS-b"),
+          df=FALSE, digits=4, star.cutoffs = c(0.05,0.01,0.001))
+
+summary(model8,diagnostics = TRUE)  # The Weak instrument test is less than 10, indicating the instrument is not relevant. 
+summary(model8a,diagnostics = TRUE) # F-test is less than 10. this instrument is not relevant 
+summary(model8b,diagnostics = TRUE) # F-test is less than 10. 
+df = df2_q2[c("logsalesvalue","group","maritalstatus","dependent")]
+cor(df) 
+#### both instruments are weak instruments. We do not have a reasoanble IV for this dataset. 
+#### In order to continue the analysis, we assume the endogeneity is negligible, and continue our analysis with OLS.   
+
+model8c <- lm(lm(logreturnvalue ~ group + female + assignmentcategory + yrofservice + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + sa_rateofpay + mallsalessf + storesqft + totalcases + logsalesvalue, data=df2_q2))
+stargazer(model8c, 
+          title="Regression Results", type="text", 
+          column.labels=c("OLS-1"),
+          df=FALSE, digits=4, star.cutoffs = c(0.05,0.01,0.001))
+# The coefficient for group is -0.2897, Not significant. 
+
+## Heteroscedasticity
+gqtest(model8c)  
+bptest(model8c) # significant, implying there is heteroscedasticity
+HWrobstder <- sqrt(diag(vcovHC(model8c, type="HC1"))) # produces Huber-White robust standard errors 
+stargazer(model8c, 
+          se=list(HWrobstder),
+          title="Regression Results", type="text", 
+          column.labels=c("HW-Robust SE"),
+          df=FALSE, digits=4, star.cutoffs = c(0.05,0.01,0.001)) 
+# The coefficient for group is -0.2897, Not significant. se 0.652
+# we do not have a good result, cannot interpret this result. 
+
+########################################### 4. Dependent Variable: Return Quantity 
+########################################### df1 salespeople
+df = df1_q2[c("group", "female", "assignmentcategory", "yrofservice", "sa_rateofpay", "avg_female", "avg_age", "avg_income", "avg_homeowner", "avg_residency", "avg_childowner",  "numofmonths_worked", "mallsalessf", "storesqft", "totalcases")]
+cor(df)
+vif(df)
+
+poisson4_1 <- glm(returnquantity ~ group + female + assignmentcategory + yrofservice + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + sa_rateofpay + mallsalessf + storesqft + totalcases + salesquantity, data=df1_q2, family="poisson")
+
+poisson4_1a <- glm(returnquantity~1, data=df1_q2, family="poisson") # Run a poisson on null model 
+
+lrtest(poisson4_1, poisson4_1a)     # statistically significant. This model does not fit. 
+
+nb4_1 <- glm.nb(returnquantity ~ group + female + assignmentcategory + yrofservice + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + sa_rateofpay + mallsalessf + storesqft + totalcases + salesquantity, data=df1_q2) 
+
+nb4_1a <- glm.nb(returnquantity ~ 1, data = df1_q2) 
+lrtest(nb4_1, nb4_1a)   # Test significant, model fits the data
+
+# Choosing between Poisson and Negative Binomial regressions
+lrtest(poisson4_1, nb4_1) # Test siginificant, negative binomial model is better than poisson model. 
+
+# Compare with OLS 
+nb_model4_1 <- lm(logreturnquantity ~ group + female + assignmentcategory + yrofservice + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + sa_rateofpay + mallsalessf + storesqft + totalcases + logsalesquantity, data=df1_q2)
+stargazer(nb4_1, nb_model4_1,
+          title="Regression Results", type="text", 
+          column.labels=c("NB","OLS"),
+          df=FALSE, digits=4, star.cutoffs = c(0.05,0.01,0.001))
+# nb coefficient 0.6457, significant
+# OLS coefficient 0.4938, significant
+confint(nb4_1, 'group') # coefficient from OLS is not in the confidence intercal of nb coefficient
+# 0.5360282 0.7568652 
+
+# In order to continue our analysis, we still using OLS to approximate endogeneity in the negative binomial model. 
+OLS3 <- ivreg(logreturnquantity ~ group + female + assignmentcategory + yrofservice + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + dependent + sa_rateofpay + mallsalessf + storesqft + totalcases + logsalesquantity|maritalstatus + dependent + sa_rateofpay + female + assignmentcategory + yrofservice + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + mallsalessf + storesqft + totalcases + logsalesquantity, data=df1_q2) # maritalstatus as IV, mallsalessf, storesqft, totalcases
+
+OLS3a <- ivreg(logreturnquantity ~ group + female + assignmentcategory + yrofservice + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + sa_rateofpay + maritalstatus + mallsalessf + storesqft + totalcases + logsalesquantity|dependent + maritalstatus + sa_rateofpay+ female + assignmentcategory + yrofservice + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + mallsalessf + storesqft + totalcases + logsalesquantity, data=df1_q2) # dependent as IV 
+
+OLS3b <- ivreg(logreturnquantity ~ group + female + assignmentcategory + yrofservice + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + sa_rateofpay + mallsalessf + storesqft + totalcases + logsalesquantity|dependent + maritalstatus + female + assignmentcategory + yrofservice + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + sa_rateofpay + mallsalessf + storesqft + totalcases + logsalesquantity, data=df1_q2) # dependent & maritalstatus as IVs 
+
+stargazer(OLS3, OLS3a, OLS3b, 
+          title="Regression Results", type="text", 
+          column.labels=c("OLS3","OLS3a","OLS3b"),
+          df=FALSE, digits=4, star.cutoffs = c(0.05,0.01,0.001))
+
+summary(OLS3,diagnostics = TRUE)  # The Weak instrument test is greater than 10, failed Hausman test, 
+summary(OLS3a,diagnostics = TRUE) # F-test is less than 10. this instrument is not relevant 
+summary(OLS3b,diagnostics = TRUE) # failed Hausman test 
+# Both IV are weak instruments, in order to proceed with our analysis, we assume the endogeinity is negligible and proceed with OLS model. 
+
+OLS3c <- lm(logreturnquantity ~ group + female + assignmentcategory + yrofservice + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + sa_rateofpay + mallsalessf + storesqft + totalcases + logsalesquantity, data=df1_q2)
+  
+## Heteroscedasticity
+gqtest(OLS3c)  
+bptest(OLS3c) # significant, implying there is heteroscedasticity
+HWrobstder <- sqrt(diag(vcovHC(OLS1b, type="HC1"))) # produces Huber-White robust standard errors 
+stargazer(OLS3c, 
+          se=list(HWrobstder),
+          title="Regression Results", type="text", 
+          column.labels=c("HW-Robust SE"),
+          df=FALSE, digits=4, star.cutoffs = c(0.05,0.01,0.001)) 
+#### the coefficient is 0.4938, not significant.
+#### We do not have a good result, cannot interpret it. 
+
+########################################### df2 store manager 
+df = df2_q2[c("group", "female", "assignmentcategory", "yrofservice", "sa_rateofpay", "avg_female", "avg_age", "avg_income", "avg_homeowner", "avg_residency", "avg_childowner",  "numofmonths_worked", "mallsalessf", "storesqft", "totalcases")]
+cor(df)
+vifcor(df)
+
+poisson4_2 <- glm(returnquantity ~ group + female + assignmentcategory + yrofservice + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + sa_rateofpay + mallsalessf + storesqft + totalcases + salesquantity, data=df2_q2, family="poisson")
+
+poisson4_2a <- glm(returnquantity~1, data=df2_q2, family="poisson") # Run a poisson on null model 
+
+lrtest(poisson4_2, poisson4_2a)     # statistically significant. This model does not fit. 
+
+nb4_2 <- glm.nb(returnquantity ~ group + female + assignmentcategory + yrofservice + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + sa_rateofpay + mallsalessf + storesqft + totalcases + salesquantity, data=df2_q2) 
+
+nb4_2a <- glm.nb(returnquantity ~ 1, data = df2_q2) 
+lrtest(nb4_2, nb4_2a)   # Test significant, model fits the data
+
+# Choosing between Poisson and Negative Binomial regressions
+lrtest(poisson4_2, nb4_2) # Test siginificant, negative binomial model is better than poisson model. 
+
+# Compare with OLS 
+nb_model4_2 <- lm(logreturnquantity ~ group + female + assignmentcategory + yrofservice + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + sa_rateofpay + mallsalessf + storesqft + totalcases + logsalesquantity, data=df2_q2)
+stargazer(nb4_2, nb_model4_2,
+          title="Regression Results", type="text", 
+          column.labels=c("NB","OLS"),
+          df=FALSE, digits=4, star.cutoffs = c(0.05,0.01,0.001))
+# nb coefficient 0.7014, significant
+# OLS coefficient 0.4612, significant
+confint(nb4_2, 'group') # coefficient from OLS is in the confidence intercal of nb coefficient
+# 0.2691742 1.1365101 
+# use 2SLS to address the endogeneity in the negative binomial model. 
+
+OLS4 <- ivreg(logreturnquantity ~ group + female + assignmentcategory + yrofservice + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + dependent + sa_rateofpay + mallsalessf + storesqft + totalcases + logsalesquantity|maritalstatus + dependent + sa_rateofpay + female + assignmentcategory + yrofservice + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + mallsalessf + storesqft + totalcases + logsalesquantity, data=df2_q2) # maritalstatus as IV, mallsalessf, storesqft, totalcases
+
+OLS4a <- ivreg(logreturnquantity ~ group + female + assignmentcategory + yrofservice + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + sa_rateofpay + maritalstatus + mallsalessf + storesqft + totalcases + logsalesquantity|dependent + maritalstatus + sa_rateofpay+ female + assignmentcategory + yrofservice + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + mallsalessf + storesqft + totalcases + logsalesquantity, data=df2_q2) # dependent as IV 
+
+OLS4b <- ivreg(logreturnquantity ~ group + female + assignmentcategory + yrofservice + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + sa_rateofpay + mallsalessf + storesqft + totalcases + logsalesquantity|dependent + maritalstatus + female + assignmentcategory + yrofservice + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + sa_rateofpay + mallsalessf + storesqft + totalcases + logsalesquantity, data=df2_q2) # dependent & maritalstatus as IVs 
+
+stargazer(OLS4, OLS4a, OLS4b, 
+          title="Regression Results", type="text", 
+          column.labels=c("OLS4","OLS4a","OLS4b"),
+          df=FALSE, digits=4, star.cutoffs = c(0.05,0.01,0.001))
+
+summary(OLS4,diagnostics = TRUE)  # F-test is less than 10. this instrument is not relevant 
+summary(OLS4a,diagnostics = TRUE) # F-test is less than 10. this instrument is not relevant 
+summary(OLS4b,diagnostics = TRUE) # F-test is less than 10. this instrument is not relevant
+# We do not have a reasonble IV to address the endogeneity. All of our instruments are weak instruments. 
+# We do not have a reliable model for this dataset. 
+
+```
+#===========================================================================================================================
+## Question 3: What is the impact of completing every additional training module on salesperson sales and return performance?
+#===========================================================================================================================
+```{r}
+
+# 1. 
+############################################### Dependent Variable: log of sales value
+# key Indipendent Variable: Sumoftraining 
+
+############################################### df1 Salespeople 
+#### Test Multicolinearity 
+df = df1[c("sumoftraining", "store_number", "employee_id", "female", "assignmentcategory", "yrofservice"
+           , "maritalstatus", "sa_rateofpay", "dependent", "avg_female", "avg_age", "avg_income", "avg_homeowner"
+           , "avg_residency", "avg_childowner",   "numofmonths_worked","salesquantity","year")]
+cor(df)
+vifcor(df)   
+
+## no multiculinarity
+
+#### Building Models 
+model3 <- lm(logsalesvalue ~ sumoftraining + factor(store_number) + female + assignmentcategory 
+             + yrofservice + sa_rateofpay + avg_female + avg_age + avg_income + avg_homeowner
+             + avg_residency + avg_childowner + numofmonths_worked + year, data=df1)
+
+model3a <- lm(logsalesvalue ~ sumoftraining + factor(store_number) + female + assignmentcategory
+              + yrofservice + sa_rateofpay + avg_female + avg_age + avg_income + avg_homeowner 
+              + avg_residency + avg_childowner + numofmonths_worked, data=df1)
+
+model3b <- lm(logsalesvalue ~ sumoftraining + I(sumoftraining^2) + factor(store_number) + female + assignmentcategory
+              + yrofservice + sa_rateofpay + avg_female + avg_age + avg_income + avg_homeowner 
+              + avg_residency + avg_childowner + numofmonths_worked + year, data=df1)
+
+model3c <- lm(logsalesvalue ~ sumoftraining+ I(sumoftraining^2) + factor(store_number) + female + assignmentcategory 
+              + yrofservice  + sa_rateofpay + avg_female + avg_age + avg_income + avg_homeowner 
+              + avg_residency + avg_childowner + numofmonths_worked , data=df1)
+
+
+stargazer(model3, model3a, model3b, model3c,
+          title="Regression Results", type="text", 
+          column.labels=c("Model3","Model3a","Model3b","Model3c"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001))
+
+
+#### Model Testing 
+anova(model3, model3a, test="Chisq")   # model3a is better 
+anova(model3a, model3b, test="Chisq")   # model3b is better 
+anova(model3b, model3c, test="Chisq")  # model1c is better, best = model 3c 
+
+#### Test or heteroskedasticity
+gqtest(model3c) 
+bptest(model3c)    # Significant p-value indicates heteroscedasticity (smaller than 0.05)
+
+HWrobstder <- sqrt(diag(vcovHC(model3c, type="HC1"))) # produces Huber-White robust standard errors 
+
+stargazer(model3c, model3c,  
+          se=list(NULL, HWrobstder),
+          title="Regression Results", type="text", 
+          column.labels=c("Normal SE", "HW-Robust SE"),
+          df=FALSE, digits=3, star.cutoffs = c(0.05,0.01,0.001))
+
+stargazer(model3c,  
+          title="Regression Results", type="text", 
+          column.labels=c("Model-3b"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001)) 
+
+meffects <- ggpredict(model3c, terms="sumoftraining") # generates a tidy data frame that keeps the predicted values for the response at each value of sumoftraining
+
+ggplot(meffects,aes(x, predicted)) + geom_line(size=1.3)  +
+  ggtitle("Quadratic model") +
+  theme(plot.title=element_text(hjust=0.5, size=16, colour="darkred", face="bold")) +
+  xlab("sumoftraining") + ylab("logsalesvalue") # This command generates the marginal effect 
+
+
+
+
+
+
+############################################### df2 Store Manager 
+df = df2[c("sumoftraining", "store_number", "employee_id", "female", "assignmentcategory", "yrofservice", "maritalstatus", "sa_rateofpay", "dependent", "avg_female", "avg_age", "avg_income", "avg_homeowner", "avg_residency", "avg_childowner",   "numofmonths_worked","salesquantity","year")]
+cor(df)
+vifcor(df)   
+
+## no mullticolliniarity
+#### Building Models 
+model3d <- lm(logsalesvalue ~ sumoftraining + factor(store_number) + employee_id + female + assignmentcategory 
+              + yrofservice + maritalstatus + sa_rateofpay + dependent + avg_female + avg_age + avg_income 
+              + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + year, data=df2)
+
+model3e <- lm(logsalesvalue ~ sumoftraining + factor(store_number) + employee_id + female + assignmentcategory 
+              + yrofservice + maritalstatus + sa_rateofpay + dependent + avg_female + avg_age + avg_income 
+              + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked, data=df2)
+
+model3f <- lm(logsalesvalue ~ I(sumoftraining^2) + factor(store_number) + employee_id + female + assignmentcategory 
+              + yrofservice + maritalstatus + sa_rateofpay + dependent + avg_female + avg_age + avg_income 
+              + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked + year, data=df2)
+
+model3g <- lm(logsalesvalue ~ I(sumoftraining^2) + factor(store_number) + employee_id + female + assignmentcategory 
+              + yrofservice + maritalstatus + sa_rateofpay + dependent + avg_female + avg_age + avg_income 
+              + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked, data=df2)
+
+## sumoftraining is insig
+
+#### Model Testing 
+anova(model3d, model3e, test="Chisq")   # model3d is better 
+anova(model3d, model3f, test="Chisq")   # model3e is better 
+anova(model3f, model3g,test="Chisq")  # model1f is better, best = model 3d , 
+
+#### Test or heteroskedasticity
+gqtest(model3d) 
+bptest(model3d)    # No Significant p-value indicates No heteroscedasticity
+
+#### Test or heteroskedasticity
+gqtest(model3e) 
+bptest(model3)    # No Significant p-value indicates No heteroscedasticity
+
+rer2 = lm(logsalesvalue ~ sumoftraining + factor(store_number) + employee_id + female + assignmentcategory + yrofservice + maritalstatus + sa_rateofpay + dependent + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked , data=df2)
+
+
+stargazer(model3, model3a, model3b, model3c,
+          title="Regression Results", type="text", 
+          column.labels=c("Model3","Model3a","Model3b","Model3c"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001))
+
+meffects2 <- ggpredict(rer2, terms="sumoftraining") # generates a tidy data frame that keeps the predicted values for the response at each value of sumoftraining
+
+ggplot(meffects2,aes(x, predicted)) + geom_line(size=1.3)  +
+  ggtitle("Quadratic model") +
+  theme(plot.title=element_text(hjust=0.5, size=16, colour="darkred", face="bold")) +
+  xlab("sumoftraining") + ylab("logsalesvalue") # This command generates the marginal effect of information level on monthly returns based on the estimated linear regression model
+
+
+
+# 2. 
+# Dependent Variable: log of return value
+############################################### df1 Salespeople 
+#### Test Multicolinearity 
+df = df1[c("sumoftraining", "store_number", "employee_id", "female", "assignmentcategory", "yrofservice"
+           , "maritalstatus", "sa_rateofpay", "dependent", "avg_female", "avg_age", "avg_income", "avg_homeowner",
+           "avg_residency", "avg_childowner",   "numofmonths_worked","salesquantity","year")]
+cor(df)
+vifcor(df)   
+
+## no multiculinarity
+
+#### Building Models 
+model32 <- lm(logreturnvalue ~ sumoftraining + factor(store_number) + female 
+              + assignmentcategory + yrofservice  + sa_rateofpay 
+              + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner 
+              + numofmonths_worked + year + logsalesvalue, data=df1)
+
+model32a <- lm(logreturnvalue ~ sumoftraining + factor(store_number) + female 
+               + assignmentcategory + yrofservice + sa_rateofpay 
+               + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner 
+               + numofmonths_worked+ logsalesvalue, data=df1)
+
+
+model32b <- lm(logreturnvalue ~ sumoftraining + I(sumoftraining^2) + factor(store_number)+ female 
+               + assignmentcategory + yrofservice + sa_rateofpay  
+               + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner 
+               + numofmonths_worked + year+ logsalesvalue, data=df1)
+
+model32c <- lm(logreturnvalue ~ sumoftraining + I(sumoftraining^2) + factor(store_number) +  female 
+               + assignmentcategory + yrofservice + sa_rateofpay  
+               + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner 
+               + numofmonths_worked+ logsalesvalue, data=df1)
+
+
+stargazer(model32, model32a, model32b, model32c,
+          title="Regression Results", type="text", 
+          column.labels=c("Model32","Model32a","Model32b","Model32c"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001))
+
+
+#### Model Testing 
+anova(model32, model32a, test="Chisq")   # model3a is better 
+anova(model32a, model32b, test="Chisq")   # model32 is better 
+anova(model32b, model32c, test="Chisq")  # model132b is better
+anova(model32a, model32c, test="Chisq") #model32C better = choose model32c
+anova(model32c, model32a,test="Chisq")
+
+#### Test or heteroskedasticity
+gqtest(model32c) 
+bptest(model32c)    # there is heteroscedasticity
+
+HWrobstder <- sqrt(diag(vcovHC(model32c, type="HC1"))) # produces Huber-White robust standard errors 
+
+stargazer(model32c, model32c,  
+          se=list(NULL, HWrobstder),
+          title="Regression Results", type="text", 
+          column.labels=c("Normal SE", "HW-Robust SE"),
+          df=FALSE, digits=3, star.cutoffs = c(0.05,0.01,0.001))
+
+
+meffects <- ggpredict(model32c, terms = "sumoftraining") # generates a tidy data frame that keeps the predicted values for the response at each value of sumoftraining
+
+ggplot(meffects,aes(x, predicted)) + geom_line(size=1.3)  +
+  ggtitle("Quadratic model") +
+  theme(plot.title=element_text(hjust=0.5, size=16, colour="darkred", face="bold")) +
+  xlab("sumoftraining") + ylab("logreturnvalue") # This command generates the marginal effect of information level on monthly returns based on the estimated linear regression model
+
+
+#3
+############################################### df2 Storemanager
+
+df = df2[c("sumoftraining", "store_number", "employee_id", "female", "assignmentcategory", "yrofservice", "maritalstatus", "sa_rateofpay", "dependent", "avg_female", "avg_age", "avg_income", "avg_homeowner", "avg_residency", "avg_childowner",   "numofmonths_worked","salesquantity","year")]
+cor(df)
+vifcor(df)   
+
+## no mullticolliniarity
+#### Building Models 
+model3d <- lm(logreturnvalue ~ sumoftraining + factor(store_number) + employee_id + female 
+              + assignmentcategory + yrofservice + maritalstatus + sa_rateofpay + dependent 
+              + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner 
+              + numofmonths_worked + year, data=df2)
+
+model3e <- lm(logreturnvalue ~ sumoftraining + factor(store_number) + employee_id + female 
+              + assignmentcategory + yrofservice + maritalstatus + sa_rateofpay + dependent 
+              + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner 
+              + numofmonths_worked, data=df2)
+
+model3f <- lm(logreturnvalue ~ I(sumoftraining^2) + factor(store_number) + employee_id + female 
+              + assignmentcategory + yrofservice + maritalstatus + sa_rateofpay + dependent 
+              + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner 
+              + numofmonths_worked + year, data=df2)
+
+model3g <- lm(logreturnvalue ~ sumoftraining + factor(store_number) + employee_id + female 
+              + assignmentcategory + yrofservice + maritalstatus + sa_rateofpay + dependent
+              + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner 
+              + numofmonths_worked + year, data=df2)
+
+## sumoftraining is insig
+
+#### Model Testing 
+anova(model3d, model3e, test="Chisq")   # model3d is better 
+anova(model3d, model3f, test="Chisq")   # model3d is better 
+anova(model3f, model3g,test="Chisq")  # model1f is better, best = model 3d , 
+
+#### Test or heteroskedasticity
+gqtest(model3d) 
+bptest(model3d)    # No Significant p-value indicates No heteroscedasticity
+
+#### Test or heteroskedasticity
+gqtest(model3e) 
+bptest(model3)    # No Significant p-value indicates No heteroscedasticity
+
+res3 = lm(logreturnvalue ~ sumoftraining + factor(store_number) + employee_id + female + assignmentcategory + yrofservice + maritalstatus + sa_rateofpay + dependent + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner + numofmonths_worked , data=df2)
+
+
+stargazer(model3, model3a, model3b, model3c,
+          title="Regression Results", type="text", 
+          column.labels=c("Model3d","Model3e","Model3f","Model3g"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001))
+
+meffects2 <- ggpredict(res3, terms="sumoftraining") # generates a tidy data frame that keeps the predicted values for the response at each value of sumoftraining
+
+ggplot(meffects2,aes(x, predicted)) + geom_line(size=1.3)  +
+  ggtitle("Quadratic model") +
+  theme(plot.title=element_text(hjust=0.5, size=16, colour="darkred", face="bold")) +
+  xlab("sumoftraining") + ylab("logreturnvalue") # This command generates the marginal effect of information level on monthly returns based on the estimated linear regression model
+
+
+
+######## Start here
+
+model33 = glm.nb(salesquantity ~ sumoftraining + I(sumoftraining^2)+ factor(store_number)  + female 
+                     + assignmentcategory + yrofservice  + sa_rateofpay 
+                     + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner 
+                     + numofmonths_worked, data=df1)
+
+model33a = glm(salesquantity ~ sumoftraining + I(sumoftraining^2) + factor(store_number) + female
+                   + assignmentcategory + yrofservice  + sa_rateofpay
+                   + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner 
+                   + numofmonths_worked,family="poisson", data=df1)
+
+
+
+stargazer(model33, model33a, title="Regression Results", type="text", 
+          column.labels=c("Model-33 NB", "Model-33a Poisson"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001))
+
+
+lrtest(model33 , model33a) #negative binomial better
+
+#create a null model to compare to our negative binomial
+model33b <- glm.nb(logsalesquantity ~ 1, data = df1)
+lrtest(model33 , model33b) #shows that model fit the test
+
+
+# testheteroskedasticity
+pred<-predict(model33)
+residual=resid(model33)
+dfmodel33 <- data.frame(pred,residual)
+ggplot(model33, aes(y=residual, x=pred)) + geom_point(size=2.5)
+
+gqtest(model33) 
+bptest(model33) #there is hetro
+
+
+HWrobstder <- sqrt(diag(vcovHC(model33, type="HC1"))) # produces Huber-White robust standard errors 
+
+stargazer(model33, model33,  
+          se=list(NULL, HWrobstder),
+          title="Regression Results", type="text", 
+          column.labels=c("Normal SE", "HW-Robust SE"),
+          df=FALSE, digits=3, star.cutoffs = c(0.05,0.01,0.001))  # Robust std. errors do not change the significance levels
+
+meffects <- ggpredict(model33, terms="sumoftraining")
+
+ggplot(meffects,aes(x, predicted)) + geom_line(size=1.3)  +
+  ggtitle("Quadratic model") +
+  theme(plot.title=element_text(hjust=0.5, size=16, colour="darkred", face="bold")) +
+  xlab("sumoftraining") + ylab("logsalesquantity")
+
+
+
+
+############################################### df2 Salespeople 
+
+
+model33 = glm.nb(salesquantity ~ sumoftraining + I(sumoftraining^2)+ factor(store_number)  + female 
+                 + assignmentcategory + yrofservice + maritalstatus + sa_rateofpay + dependent 
+                 + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner 
+                 + numofmonths_worked, data=df2)
+
+model33a = glm(salesquantity ~ sumoftraining + I(sumoftraining^2) + factor(store_number) + female 
+               + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner 
+               + numofmonths_worked,family="poisson", data=df2)
+
+
+
+stargazer(model33, model33a, title="Regression Results", type="text", 
+          column.labels=c("Model-33 NB", "Model-33a Poisson"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001))
+
+
+lrtest(model33 , model33a) #negative binomial better
+
+#create a null model to compare to our negative binomial
+model33b <- glm.nb(logsalesquantity ~ 1, data = df2)
+lrtest(model33 , model33b) #shows that model fit the test
+
+
+# testheteroskedasticity
+pred<-predict(model33)
+residual=resid(model33)
+dfmodel33 <- data.frame(pred,residual)
+ggplot(model33, aes(y=residual, x=pred)) + geom_point(size=2.5)
+
+gqtest(model33) 
+bptest(model33) #there is hetro
+
+
+HWrobstder <- sqrt(diag(vcovHC(model33, type="HC1"))) # produces Huber-White robust standard errors 
+
+stargazer(model33, model33,  
+          se=list(NULL, HWrobstder),
+          title="Regression Results", type="text", 
+          column.labels=c("Normal SE", "HW-Robust SE"),
+          df=FALSE, digits=3, star.cutoffs = c(0.05,0.01,0.001))  # Robust std. errors do not change the significance levels
+
+meffects <- ggpredict(model33, terms="sumoftraining")
+
+ggplot(meffects,aes(x, predicted)) + geom_line(size=1.3)  +
+  ggtitle("Quadratic model") +
+  theme(plot.title=element_text(hjust=0.5, size=16, colour="darkred", face="bold")) +
+  xlab("sumoftraining") + ylab("logsalesquantity")
+
+# 4. 
+# Dependent Variable: log of return quantity
+######################################### Use Df1
+model33b = glm.nb(returnquantity ~ sumoftraining + I(sumoftraining^2) + factor(store_number) + female 
+                 + assignmentcategory + yrofservice + sa_rateofpay 
+                 + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner 
+                 + numofmonths_worked+salesquantity, data=df1)
+
+model33c = glm(returnquantity ~ sumoftraining + I(sumoftraining^2)+ factor(store_number) + female 
+               + assignmentcategory + yrofservice + maritalstatus + sa_rateofpay + dependent 
+               + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner 
+               + numofmonths_worked+salesquantity,family="poisson", data=df1)
+
+
+
+stargazer(model33b, model33c, title="Regression Results", type="text", 
+          column.labels=c("Model-33 NB", "Model-33a Poisson"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001))
+
+
+lrtest(model33b , model33c) #NB better
+
+#create a null model to compare to our negative binomial
+model33c <- glm.nb(logsalesquantity ~ 1, data = df1)
+lrtest(model33b , model33c) #shows that model fit the test
+
+HWrobstder <- sqrt(diag(vcovHC(model33b, type="HC1"))) # produces Huber-White robust standard errors 
+
+stargazer(model33b, model33b,  
+          se=list(NULL, HWrobstder),
+          title="Regression Results", type="text", 
+          column.labels=c("Normal SE", "HW-Robust SE"),
+          df=FALSE, digits=3, star.cutoffs = c(0.05,0.01,0.001))  # Robust std. errors do not change the significance levels
+
+
+meffects <- ggpredict(model33b, terms="sumoftraining")
+
+ggplot(meffects,aes(x, predicted)) + geom_line(size=1.3)  +
+  ggtitle("Quadratic model") +
+  theme(plot.title=element_text(hjust=0.5, size=16, colour="darkred", face="bold")) +
+  xlab("sumoftraining") + ylab("logreturnquantity")
+
+
+######################################### Use Df2
+
+
+model33b = glm.nb(logreturnquantity ~ sumoftraining + I(sumoftraining^2) + factor(store_number) + female 
+                  + assignmentcategory + yrofservice + maritalstatus + sa_rateofpay + dependent 
+                  + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner 
+                  + numofmonths_worked, data=df2)
+
+model33c = glm(logreturnquantity ~ sumoftraining + I(sumoftraining^2)+ factor(store_number) + female 
+               + assignmentcategory + yrofservice + maritalstatus + sa_rateofpay + dependent 
+               + avg_female + avg_age + avg_income + avg_homeowner + avg_residency + avg_childowner 
+               + numofmonths_worked,family="poisson", data=df2)
+
+
+
+stargazer(model33b, model33c, title="Regression Results", type="text", 
+          column.labels=c("Model-33 NB", "Model-33a Poisson"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001))
+
+
+lrtest(model33b , model33c) #NB better
+
+
+HWrobstder <- sqrt(diag(vcovHC(model33b, type="HC1"))) # produces Huber-White robust standard errors 
+
+stargazer(model33b, model33b,  
+          se=list(NULL, HWrobstder),
+          title="Regression Results", type="text", 
+          column.labels=c("Normal SE", "HW-Robust SE"),
+          df=FALSE, digits=3, star.cutoffs = c(0.05,0.01,0.001))  # Robust std. errors do not change the significance levels
+
+
+meffects <- ggpredict(model33b, terms="sumoftraining")
+
+ggplot(meffects,aes(x, predicted)) + geom_line(size=1.3)  +
+  ggtitle("Quadratic model") +
+  theme(plot.title=element_text(hjust=0.5, size=16, colour="darkred", face="bold")) +
+  xlab("sumoftraining") + ylab("logreturnquantity")
+
+
+```
+#===========================================================================================================================
+## Question 4: Who benefits from the training more: Full time employees or part-time employees?
+#===========================================================================================================================
+```{r}
+
+
+# 1. 
+############################################### Dependent Variable: log of sales value
+# key Indipendent Variable: Sumoftraining 
+
+############################################### df1 Salespeople 
+
+df = df1[c("group", "store_number", "female", "assignmentcategory", "yrofservice","sumoftraining"
+           , "maritalstatus", "sa_rateofpay", "dependent", "avg_female", "avg_age", "avg_income", "avg_homeowner"
+           , "avg_residency", "avg_childowner", "numofmonths_worked","salesquantity","year")]
+cor(df)
+vifcor(df)
+
+
+
+
+model401<- ivreg(logsalesvalue ~ group* assignmentcategory + factor(store_number) + female  
+               + yrofservice  + sa_rateofpay + avg_female + avg_age + avg_income + avg_homeowner
+               + avg_residency + avg_childowner + numofmonths_worked + year |maritalstatus*assignmentcategory
+               + factor(store_number) + female  
+               + yrofservice  + sa_rateofpay + avg_female + avg_age + avg_income + avg_homeowner
+               + avg_residency + avg_childowner + numofmonths_worked + year, data=df1)
+
+model402<- ivreg(logsalesvalue ~ group* assignmentcategory + factor(store_number) + female  
+                 + yrofservice  + sa_rateofpay + avg_female + avg_age + avg_income + avg_homeowner
+                 + avg_residency + avg_childowner + numofmonths_worked + year |dependent*assignmentcategory 
+                 + factor(store_number) + female  
+                 + yrofservice  + sa_rateofpay + avg_female + avg_age + avg_income + avg_homeowner
+                 + avg_residency + avg_childowner + numofmonths_worked + year, data=df1)
+
+model403<- ivreg(logsalesvalue ~ group* assignmentcategory + factor(store_number) + female  
+                 + yrofservice  + sa_rateofpay + avg_female + avg_age + avg_income + avg_homeowner
+                 + avg_residency + avg_childowner + numofmonths_worked + year |(dependent + maritalstatus)* assignmentcategory +
+                   logsalesvalue + factor(store_number) + female  
+                 + yrofservice  + sa_rateofpay + avg_female + avg_age + avg_income + avg_homeowner
+                 + avg_residency + avg_childowner + numofmonths_worked + year, data=df1)
+
+
+summary(model401, diagnostics = TRUE) #weak
+summary(model402, diagnostics = TRUE) #weak
+summary(model403, diagnostics = TRUE) #weak
+
+model401<- ivreg(logsalesvalue ~ group* assignmentcategory + factor(store_number) + female  
+                 + yrofservice  + sa_rateofpay + avg_female + avg_age + avg_income + avg_homeowner
+                 + avg_residency + avg_childowner + numofmonths_worked  |maritalstatus*assignmentcategory
+                 + factor(store_number) + female  
+                 + yrofservice  + sa_rateofpay + avg_female + avg_age + avg_income + avg_homeowner
+                 + avg_residency + avg_childowner + numofmonths_worked , data=df1)
+
+model402<- ivreg(logsalesvalue ~ group* assignmentcategory + factor(store_number) + female  
+                 + yrofservice  + sa_rateofpay + avg_female + avg_age + avg_income + avg_homeowner
+                 + avg_residency + avg_childowner + numofmonths_worked  |dependent*assignmentcategory 
+                 + factor(store_number) + female  
+                 + yrofservice  + sa_rateofpay + avg_female + avg_age + avg_income + avg_homeowner
+                 + avg_residency + avg_childowner + numofmonths_worked , data=df1)
+
+model403<- ivreg(logsalesvalue ~ group* assignmentcategory + factor(store_number) + female  
+                 + yrofservice  + sa_rateofpay + avg_female + avg_age + avg_income + avg_homeowner
+                 + avg_residency + avg_childowner + numofmonths_worked  |(dependent + maritalstatus)* assignmentcategory +
+                   logsalesvalue + factor(store_number) + female  
+                 + yrofservice  + sa_rateofpay + avg_female + avg_age + avg_income + avg_homeowner
+                 + avg_residency + avg_childowner + numofmonths_worked , data=df1)
+
+
+summary(model401, diagnostics = TRUE) #weak
+summary(model402, diagnostics = TRUE) #weak
+summary(model403, diagnostics = TRUE) #weak
+
+
+model4 <- lm(logsalesvalue ~ group* assignmentcategory + factor(store_number) + female  
+             + yrofservice  + sa_rateofpay + avg_female + avg_age + avg_income + avg_homeowner
+             + avg_residency + avg_childowner + numofmonths_worked + year, data=df1)
+
+
+model4a <- lm(logsalesvalue ~ group * assignmentcategory + factor(store_number) + female
+             + yrofservice + sa_rateofpay + avg_female + avg_age + avg_income + avg_homeowner
+             + avg_residency + avg_childowner + numofmonths_worked, data=df1)
+
+
+stargazer(model4, model4a, 
+          title="Regression Results", type="text", 
+          column.labels=c("Model4","Model4a"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001))
+
+#### Model Testing 
+anova(model4, model4a, test="Chisq")    
+anova(model4a, model4, test="Chisq") 
+
+
+
+#### Test or heteroskedasticity
+gqtest(model4) 
+bptest(model4)  #there is hetro
+
+HWrobstder <- sqrt(diag(vcovHC(model4, type="HC1"))) # produces Huber-White robust standard errors 
+
+stargazer(model4, model4,  
+          se=list(NULL, HWrobstder),
+          title="Regression Results", type="text", 
+          column.labels=c("Normal SE", "HW-Robust SE"),
+          df=FALSE, digits=3, star.cutoffs = c(0.05,0.01,0.001))
+
+meffects3 <- ggpredict(model4a, terms=c("group", "assignmentcategory")) # generates a tidy data frame  
+
+ggplot(meffects3,aes(x, predicted, colour=group)) + geom_line(size=1.3) + 
+  xlab("training") + ylab("salesvalue")
+
+
+ggplot(meffects3,aes(x, predicted, colour=group)) + geom_line(size=1.3) + 
+  xlab("training") + ylab("Sales ($)") +
+  labs(colour="FT?") + 
+  scale_colour_discrete(labels=c("No", "Yes")) +
+  scale_x_continuous(breaks=c(0,1), labels=c("no training", "training")) +
+  theme(axis.title.x=element_blank())# make the plot more self-readable
+
+
+# 2. 
+############################################### Dependent Variable: log of return value
+# key Indipendent Variable: Sumoftraining 
+
+############################################### df1 Salespeople 
+
+df = df1[c("group", "store_number", "female", "assignmentcategory", "yrofservice","sumoftraining"
+           , "maritalstatus", "sa_rateofpay", "dependent", "avg_female", "avg_age", "avg_income", "avg_homeowner"
+           , "avg_residency", "avg_childowner", "numofmonths_worked","salesquantity","year")]
+cor(df)
+vifcor(df)
+
+
+model411<- ivreg(logreturnvalue ~ group* assignmentcategory + factor(store_number) + female  
+                 + yrofservice  + sa_rateofpay + avg_female + avg_age + avg_income + avg_homeowner
+                 + avg_residency + avg_childowner + numofmonths_worked + year |maritalstatus*assignmentcategory
+                 + factor(store_number) + female  
+                 + yrofservice  + sa_rateofpay + avg_female + avg_age + avg_income + avg_homeowner
+                 + avg_residency + avg_childowner + numofmonths_worked + year, data=df1)
+
+model412<- ivreg(logreturnvalue ~ group* assignmentcategory + factor(store_number) + female  
+                 + yrofservice  + sa_rateofpay + avg_female + avg_age + avg_income + avg_homeowner
+                 + avg_residency + avg_childowner + numofmonths_worked + year |dependent*assignmentcategory 
+                 + factor(store_number) + female  
+                 + yrofservice  + sa_rateofpay + avg_female + avg_age + avg_income + avg_homeowner
+                 + avg_residency + avg_childowner + numofmonths_worked + year, data=df1)
+
+model413<- ivreg(logreturnvalue ~ group* assignmentcategory + factor(store_number) + female  
+                 + yrofservice  + sa_rateofpay + avg_female + avg_age + avg_income + avg_homeowner
+                 + avg_residency + avg_childowner + numofmonths_worked + year |(dependent + maritalstatus)* assignmentcategory +
+                   logsalesvalue + factor(store_number) + female  
+                 + yrofservice  + sa_rateofpay + avg_female + avg_age + avg_income + avg_homeowner
+                 + avg_residency + avg_childowner + numofmonths_worked + year, data=df1)
+
+
+summary(model411, diagnostics = TRUE) #weak
+summary(model412, diagnostics = TRUE) #weak
+summary(model413, diagnostics = TRUE) #weak
+
+model411<- ivreg(logreturnvalue ~ group* assignmentcategory + factor(store_number) + female  
+                 + yrofservice  + sa_rateofpay + avg_female + avg_age + avg_income + avg_homeowner
+                 + avg_residency + avg_childowner + numofmonths_worked |maritalstatus*assignmentcategory
+                 + factor(store_number) + female  
+                 + yrofservice  + sa_rateofpay + avg_female + avg_age + avg_income + avg_homeowner
+                 + avg_residency + avg_childowner + numofmonths_worked, data=df1)
+
+model412<- ivreg(logreturnvalue ~ group* assignmentcategory + factor(store_number) + female  
+                 + yrofservice  + sa_rateofpay + avg_female + avg_age + avg_income + avg_homeowner
+                 + avg_residency + avg_childowner + numofmonths_worked |dependent*assignmentcategory 
+                 + factor(store_number) + female  
+                 + yrofservice  + sa_rateofpay + avg_female + avg_age + avg_income + avg_homeowner
+                 + avg_residency + avg_childowner + numofmonths_worked , data=df1)
+
+model413<- ivreg(logreturnvalue ~ group* assignmentcategory + factor(store_number) + female  
+                 + yrofservice  + sa_rateofpay + avg_female + avg_age + avg_income + avg_homeowner
+                 + avg_residency + avg_childowner + numofmonths_worked  |(dependent + maritalstatus)* assignmentcategory +
+                   logsalesvalue + factor(store_number) + female  
+                 + yrofservice  + sa_rateofpay + avg_female + avg_age + avg_income + avg_homeowner
+                 + avg_residency + avg_childowner + numofmonths_worked , data=df1)
+
+
+summary(model411, diagnostics = TRUE) #weak
+summary(model412, diagnostics = TRUE) #weak
+summary(model413, diagnostics = TRUE) #weak
+
+
+
+
+model4 <- lm(logreturnvalue ~ group* assignmentcategory + factor(store_number) + female  
+             + yrofservice + maritalstatus + sa_rateofpay + dependent + avg_female + avg_age + avg_income + avg_homeowner
+             + avg_residency + avg_childowner + numofmonths_worked + year, data=df1)
+
+
+model4a <- lm(logreturnvalue ~ group * assignmentcategory + factor(store_number) + female
+              + yrofservice + maritalstatus + sa_rateofpay + dependent + avg_female + avg_age + avg_income + avg_homeowner
+              + avg_residency + avg_childowner + numofmonths_worked, data=df1)
+
+
+stargazer(model4, model4a, 
+          title="Regression Results", type="text", 
+          column.labels=c("Model4","Model4a"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001))
+
+#### Model Testing 
+anova(model4, model4a, test="Chisq")    
+anova(model4a, model4, test="Chisq") 
+
+
+
+#### Test or heteroskedasticity
+gqtest(model4) 
+bptest(model4)  #there is hetro
+
+HWrobstder <- sqrt(diag(vcovHC(model4, type="HC1"))) # produces Huber-White robust standard errors 
+
+stargazer(model4, model4,  
+          se=list(NULL, HWrobstder),
+          title="Regression Results", type="text", 
+          column.labels=c("Normal SE", "HW-Robust SE"),
+          df=FALSE, digits=3, star.cutoffs = c(0.05,0.01,0.001))
+
+meffects3 <- ggpredict(model4a, terms=c("group", "assignmentcategory")) # generates a tidy data frame  
+
+ggplot(meffects3,aes(x, predicted, colour=group)) + geom_line(size=1.3) + 
+  xlab("training") + ylab("returnvalue")
+
+
+ggplot(meffects3,aes(x, predicted, colour=group)) + geom_line(size=1.3) + 
+  xlab("training") + ylab("return ($)") +
+  labs(colour="FT?") + 
+  scale_colour_discrete(labels=c("No", "Yes")) +
+  scale_x_continuous(breaks=c(0,1), labels=c("no training", "training")) +
+  theme(axis.title.x=element_blank())# make the plot more self-readable
+
+
+# 3. 
+############################################### Dependent Variable: log of sales quantity
+# key Indipendent Variable: Sumoftraining 
+
+############################################### df1 Salespeople 
+df1_1 <- subset(df1, year==2012|year==2013)
+
+df = df1[c("group", "store_number", "female", "assignmentcategory", "yrofservice","sumoftraining"
+           , "maritalstatus", "sa_rateofpay", "dependent", "avg_female", "avg_age", "avg_income", "avg_homeowner"
+           , "avg_residency", "avg_childowner", "numofmonths_worked","year")]
+cor(df)
+vifcor(df)
+
+model43 <- glm.nb(salesquantity ~ group * assignmentcategory + factor(store_number) + female + yrofservice + sa_rateofpay + avg_female + avg_age + avg_income + avg_homeowner 
+                  + avg_residency + avg_childowner + numofmonths_worked + year, data=df1)
+model43a <-glm.nb(salesquantity~ 1, data=df1)
+lrtest(model43, model43a)
+
+model432 = glm(salesquantity ~ group * assignmentcategory + factor(store_number) + female
+               + yrofservice + sa_rateofpay + avg_female + avg_age + avg_income + avg_homeowner
+               + avg_residency + avg_childowner + numofmonths_worked +year, family="poisson", data=df1)
+model432a <- glm(salesquantity ~ 1, data = df1, family="'poisson")
+
+lrtest(model43 , model432) #shows that model fit the test
+
+stargazer(model43, title="Regression Results", type="text", 
+          column.labels=c("Model-43 NB"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001))
+
+
+
+
+
+model43b <- lm(salesquantity ~ group * assignmentcategory + factor(store_number) + female + yrofservice + sa_rateofpay + avg_female 
+               + avg_age + avg_income + avg_homeowner 
+               + avg_residency + avg_childowner + numofmonths_worked + year, data=df1)
+stargazer(model43b, model43,
+          title="Regression Results", type="text", 
+          column.labels=c("NB","OLS"),
+          df=FALSE, digits=4, star.cutoffs = c(0.05,0.01,0.001))
+
+confint(model43, 'group')
+# coefficient from OLS is not in the confidence intercal of nb coefficient
+
+# In order to continue our analysis, we still using OLS to approximate endogeneity in the negative binomial model. 
+model411<- ivreg(salequantity ~ group* assignmentcategory + factor(store_number) + female  
+                 + yrofservice  + sa_rateofpay + avg_female + avg_age + avg_income + avg_homeowner
+                 + avg_residency + avg_childowner + numofmonths_worked + year |maritalstatus*assignmentcategory
+                 + factor(store_number) + female  
+                 + yrofservice  + sa_rateofpay + avg_female + avg_age + avg_income + avg_homeowner
+                 + avg_residency + avg_childowner + numofmonths_worked + year, data=df1)
+
+model412<- ivreg(salequantity ~ group* assignmentcategory + factor(store_number) + female  
+                 + yrofservice  + sa_rateofpay + avg_female + avg_age + avg_income + avg_homeowner
+                 + avg_residency + avg_childowner + numofmonths_worked + year |dependent*assignmentcategory 
+                 + factor(store_number) + female  
+                 + yrofservice  + sa_rateofpay + avg_female + avg_age + avg_income + avg_homeowner
+                 + avg_residency + avg_childowner + numofmonths_worked + year, data=df1)
+
+model413<- ivreg(salequantity ~ group* assignmentcategory + factor(store_number) + female  
+                 + yrofservice  + sa_rateofpay + avg_female + avg_age + avg_income + avg_homeowner
+                 + avg_residency + avg_childowner + numofmonths_worked + year |(dependent + maritalstatus)* assignmentcategory +
+                   logsalesvalue + factor(store_number) + female  
+                 + yrofservice  + sa_rateofpay + avg_female + avg_age + avg_income + avg_homeowner
+                 + avg_residency + avg_childowner + numofmonths_worked + year, data=df1)
+
+
+
+##### test hetro
+HWrobstder <- sqrt(diag(vcovHC(model43, type="HC1"))) # produces Huber-White robust standard errors 
+
+##### there is hetro, so use robust
+stargazer(model43, model43,  
+          se=list(NULL, HWrobstder),
+          title="Regression Results", type="text", 
+          column.labels=c("Normal SE", "HW-Robust SE"),
+          df=FALSE, digits=3, star.cutoffs = c(0.05,0.01,0.001)) 
+
+
+
+meffects3 <- ggpredict(model43, terms=c("group", "assignmentcategory")) # generates a tidy data frame  
+
+ggplot(meffects3,aes(x, predicted, colour=group)) + geom_line(size=1.3) + 
+  xlab("training") + ylab("salesquantity")
+
+
+ggplot(meffects3,aes(x, predicted, colour=group)) + geom_line(size=1.3) + 
+  xlab("training") + ylab("salesquantity ($)") +
+  labs(colour="FT?") + 
+  scale_colour_discrete(labels=c("No", "Yes")) +
+  scale_x_continuous(breaks=c(0,1), labels=c("no training", "training")) +
+  theme(axis.title.x=element_blank())# make the plot more self-readable
+
+# 4. 
+############################################### Dependent Variable: log of return quantity
+# key Indipendent Variable: Sumoftraining 
+
+############################################### df1 Salespeople 
+
+df = df1[c("group", "store_number", "female", "assignmentcategory", "yrofservice","sumoftraining"
+           , "maritalstatus", "sa_rateofpay", "dependent", "avg_female", "avg_age", "avg_income", "avg_homeowner"
+           , "avg_residency", "avg_childowner", "numofmonths_worked","year")]
+cor(df)
+vifcor(df)
+
+
+model43 = glm.nb(logreturnquantity ~ group* assignmentcategory + factor(store_number) + female  
+                 + yrofservice + maritalstatus + sa_rateofpay + dependent + avg_female + avg_age + avg_income + avg_homeowner
+                 + avg_residency + avg_childowner + numofmonths_worked + year, data=df1)
+
+
+model43b = glm(logreturnquantity ~ group * assignmentcategory + factor(store_number) + female
+               + yrofservice + maritalstatus + sa_rateofpay + dependent + avg_female + avg_age + avg_income + avg_homeowner
+               + avg_residency + avg_childowner + numofmonths_worked +year, family="poisson", data=df1)
+
+
+lrtest(model43 , model43b) #shows that model fit the test
+
+stargazer(model43, title="Regression Results", type="text", 
+          column.labels=c("Model-43 NB"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001))
+
+################ foud it to be insignificant
+############################################ cut off
+
+
+
+lrtest(model43 , model43a) # 43better
+lrtest(model43 , model43b) #43 better
+lrtest(model43 , model43c) #43 better
+
+##### test hetro
+HWrobstder <- sqrt(diag(vcovHC(model43, type="HC1"))) # produces Huber-White robust standard errors 
+
+##### there is hetro, so use robust
+stargazer(model43, model43,  
+          se=list(NULL, HWrobstder),
+          title="Regression Results", type="text", 
+          column.labels=c("Normal SE", "HW-Robust SE"),
+          df=FALSE, digits=3, star.cutoffs = c(0.05,0.01,0.001)) 
+
+
+
+meffects3 <- ggpredict(model43, terms=c("group", "assignmentcategory")) # generates a tidy data frame  
+
+ggplot(meffects3,aes(x, predicted, colour=group)) + geom_line(size=1.3) + 
+  xlab("training") + ylab("salesquantity")
+
+
+ggplot(meffects3,aes(x, predicted, colour=group)) + geom_line(size=1.3) + 
+  xlab("training") + ylab("salesquantity ($)") +
+  labs(colour="FT?") + 
+  scale_colour_discrete(labels=c("No", "Yes")) +
+  scale_x_continuous(breaks=c(0,1), labels=c("no training", "training")) +
+  theme(axis.title.x=element_blank())# make the plot more self-readable
+
+
+
+```
+#===========================================================================================================================
+## Question 5: Who benefits from the trainingmore:more experienced employees or less experienced employees?
+#===========================================================================================================================
+```{r}
+
+##preprocessing
+
+mydata$pk <- rowSums(mydata[,28:34], na.rm=TRUE)
+mydata$service_selling[is.na(mydata$service_selling)]=0
+##### Test Multicolinearity @@5
+df_temp <- subset(mydata, mydata$year>2011) 
+df1 <- subset(df_temp, sa_rateofpay < 500) 
+
+df2 <- subset(df_temp, sa_rateofpay > 500)
+
+###boxplot
+
+df1$Sum_of_Training <- as.factor(df1$sumoftraining)
+ggplot(df1, aes(x=Sum_of_Training), y=logsalesvalue, fill=Sum_of_Training) + geom_boxplot() + 
+  xlab("At Least One Training") + ylab("Log of Sales Vlaue")  
+ggplot(df2, aes(x=Sum_of_Training), y=logsalesvalue, fill=Sum_of_Training) + geom_boxplot() + 
+  xlab("At Least One Training") + ylab("Log of Sales Vlaue")  
+
+df_var_1 = df1[c("female","assignmentcategory","sa_yearsofservice","sa_rateofpay","year","avg_female","avg_age","avg_income","avg_homeowner","avg_residency","avg_childowner","numofmonths_worked","sumoftraining","training","mallsalessf","storesqft","totalcases","pk")]
+df_var_2 = df2[c("female","assignmentcategory","sa_yearsofservice","sa_rateofpay","year","avg_female","avg_age","avg_income","avg_homeowner","avg_residency","avg_childowner","numofmonths_worked","sumoftraining","training","mallsalessf","storesqft","totalcases","pk")]
+
+vifcor(df_var_1)
+cor(df_var_1)#no multicollinearity
+
+vifcor(df_var_2)
+cor(df_var_2)
+
+#IV potential IV maritalstatus &dependent
+
+##with denpendetn V
+
+df_IV_1=df1[c("maritalstatus","dependent","salesquantity","returnquantity","logsalesvalue","logreturnvalue")]
+df_IV_2=df2[c("maritalstatus","dependent","salesquantity","returnquantity","logsalesvalue","logreturnvalue")]
+
+cor(df_IV_2)
+cor(df_IV_1)
+
+
+df_IV_1=df1[c("maritalstatus","dependent","salesquantity","returnquantity","logsalesvalue","logreturnvalue")]
+df_IV_2=df2[c("maritalstatus","dependent","salesquantity","returnquantity","logsalesvalue","logreturnvalue")]
+
+
+cor(df_IV_2)
+cor(df_IV_1)
+
+##with key indenpendetn V
+df_IV_1=df1[c("maritalstatus","dependent","training","sumoftraining")]
+df_IV_2=df2[c("maritalstatus","dependent","salesquantity")]
+cor(df_IV_2)
+cor(df_IV_1)
+#conceptually we choose these two IV
+
+#############====================
+#for sales people group df1
+##############+===================
+#experience & less experience
+boundary= quantile(df2$yrofservice,c(0.3333,0.6666),na.rm=TRUE)
+#model
+boundary=c(0.6931472,1.0986123)
+b1=0.6931472
+b2=1.0986123
+
+##Key independent variable:Sumoftraining*yrofservice
+#IV: maritalstatus+dependent combination
+#control variable with store num
+model5_131IV =ivreg(logsalesvalue~sumoftraining*yrofservice+female+assignmentcategory+factor(store_number)+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay|maritalstatus*yrofservice+female+assignmentcategory+year+avg_female+avg_age+avg_income+  avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+factor(store_number)+sa_rateofpay,data = df1)
+
+model5_132IV =ivreg(logsalesvalue~sumoftraining*yrofservice+female+assignmentcategory+factor(store_number)+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay|dependent*yrofservice+female+assignmentcategory+year+avg_female+avg_age+avg_income+  avg_homeowner+avg_residency+avg_childowner+numofmonths_worked++factor(store_number)++sa_rateofpay,data = df1)
+
+model5_133IV =ivreg(logsalesvalue~sumoftraining*yrofservice+female+assignmentcategory+factor(store_number)+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay|maritalstatus*yrofservice+dependent*yrofservice+female+assignmentcategory+year+avg_female+avg_age+avg_income+  avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+factor(store_number)+sa_rateofpay,data = df1)
+
+summary(model5_131IV,diagnostics = TRUE) 
+summary(model5_132IV,diagnostics = TRUE) 
+summary(model5_133IV,diagnostics = TRUE) #The Weak instrument test (F-test) is less than 10, indicating all the instrument is not relevant.
+
+##Key independent variable:Sumoftraining*yrofservice
+#IV: maritalstatus+dependent combination
+#control variable with mallsalessf + storesqft + totalcases 
+model5_141IV =ivreg(logsalesvalue~sumoftraining*yrofservice+female+assignmentcategory+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay+mallsalessf + storesqft + totalcases|maritalstatus*yrofservice+female+assignmentcategory+year+avg_female+avg_age+avg_income+  avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay+mallsalessf + storesqft + totalcases,data = df1)
+
+model5_142IV =ivreg(logsalesvalue~sumoftraining*yrofservice+female+assignmentcategory+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay+mallsalessf + storesqft + totalcases|dependent*yrofservice+female+assignmentcategory+year+avg_female+avg_age+avg_income+  avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay+mallsalessf + storesqft + totalcases,data = df1)
+
+model5_143IV =ivreg(logsalesvalue~sumoftraining*yrofservice+female+assignmentcategory+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay+mallsalessf + storesqft + totalcases|maritalstatus*yrofservice+dependent*yrofservice+female+assignmentcategory+year+avg_female+avg_age+avg_income+  avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay+mallsalessf + storesqft + totalcases,data = df1)
+
+
+summary(model5_141IV,diagnostics = TRUE) 
+summary(model5_142IV,diagnostics = TRUE) 
+summary(model5_143IV,diagnostics = TRUE) ##choose the model5_141IV@
+stargazer(model5_141IV,
+          title="Regression Results", type="text", 
+          digit=4,
+          column.labels=c("Model-1"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001)) 
+
+
+
+bptest(model5_141IV)#indicate heteroskadasticity
+gqtest(model5_141IV)
+
+consstder <- sqrt(diag(vcovHC(model5_141IV, type="const"))) # produces normal standard errors
+HWrobstder <- sqrt(diag(vcovHC(model5_141IV, type="HC1"))) # produces Huber-White robust standard errors 
+clusrobstder <- sqrt(diag(cluster.vcov(model5_141IV, df1$store_number))) # produces clustered robust standard errors
+
+stargazer(model5_141IV, model5_141IV, model5_141IV,  
+          se=list(consstder, HWrobstder,clusrobstder),
+          title="Regression Results", type="text", 
+          column.labels=c("Normal SE", "HW-Robust SE", "Clustered SE"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001)) #interaction term is insignificant
+
+
+##try ols model
+model5_11 = lm(logsalesvalue~sumoftraining*yrofservice+factor(store_number)+female+assignmentcategory+sa_rateofpay+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked,data = df1)
+
+
+stargazer(model5_11,
+          title="Regression Results", type="text", 
+          digit=4,
+          column.labels=c("Model-1"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001)) 
+bptest(model5_11)#hetero
+gqtest(model5_11)
+consstder <- sqrt(diag(vcovHC(model5_11, type="const"))) # produces normal standard errors
+HWrobstder <- sqrt(diag(vcovHC(model5_11, type="HC1"))) # produces Huber-White robust standard errors 
+clusrobstder <- sqrt(diag(cluster.vcov(model5_11, df1$store_number))) # produces clustered robust standard errors
+
+stargazer(model5_11, model5_11, model5_11,  
+          se=list(consstder, HWrobstder,clusrobstder),
+          title="Regression Results", type="text", 
+          column.labels=c("Normal SE", "HW-Robust SE", "Clustered SE"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001))  # displays normal/HW robust/clustered robust standard errors. all significant
+
+
+meffect5_11 <- ggpredict(model5_11, terms=c("sumoftraining", "yrofservice [0.6931472,1.0986123]")) # generates a tidy data frame at three different values of age  
+
+
+
+ggplot(meffect5_11,aes(x, predicted, colour=group)) + geom_line(size=1.3) + 
+    xlab("Sum of Modules Take") + ylab("Log Sales Value ($)") +
+    labs(colour="Experienced?") + 
+    scale_colour_discrete(labels=c("less experienced", "experienced"))
+
+
+######################Denpendent Variable: logreturnsvalues
+##Key independent variable:sumoftraining & sumoftraining*yrofservice
+#IV: maritalstatus+dependent combination
+#control variable:with store num
+
+model5_231IV =ivreg(logreturnvalue~sumoftraining*yrofservice+female+assignmentcategory+factor(store_number)+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay|maritalstatus*yrofservice+female+assignmentcategory+year+avg_female+avg_age+avg_income+  avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+factor(store_number)+sa_rateofpay+logsalesvalue,data = df1)
+
+model5_232IV =ivreg(logreturnvalue~sumoftraining*yrofservice+female+assignmentcategory+factor(store_number)+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay|dependent*yrofservice+female+assignmentcategory+year+avg_female+avg_age+avg_income+  avg_homeowner+avg_residency+avg_childowner+numofmonths_worked++factor(store_number)+sa_rateofpay+logsalesvalue,data = df1)
+
+model5_233IV =ivreg(logreturnvalue~sumoftraining*yrofservice+female+assignmentcategory+factor(store_number)+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay|maritalstatus*yrofservice+dependent*yrofservice+female+assignmentcategory+year+avg_female+avg_age+avg_income+  avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+factor(store_number)+sa_rateofpay+logsalesvalue,data = df1)
+
+summary(model5_231IV,diagnostics = TRUE) 
+summary(model5_232IV,diagnostics = TRUE) 
+summary(model5_233IV,diagnostics = TRUE) #The Weak instrument test (F-test) is less than 10, indicating all the instrument is not relevant.
+
+#use three control vari to replcae store num
+model5_241IV =ivreg(logreturnvalue~sumoftraining*yrofservice+female+assignmentcategory+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay+mallsalessf + storesqft + totalcases+logsalesvalue|maritalstatus*yrofservice+female+assignmentcategory+year+avg_female+avg_age+avg_income+  avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay+mallsalessf + storesqft + totalcases+logsalesvalue,data = df1)
+
+model5_242IV =ivreg(logreturnvalue~sumoftraining*yrofservice+female+assignmentcategory+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay+mallsalessf + storesqft + totalcases+logsalesvalue|dependent*yrofservice+female+assignmentcategory+year+avg_female+avg_age+avg_income+  avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay+mallsalessf + storesqft + totalcases+logsalesvalue,data = df1)
+
+model5_243IV =ivreg(logreturnvalue~sumoftraining*yrofservice+female+assignmentcategory+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay+mallsalessf + storesqft + totalcases+logsalesvalue|maritalstatus*yrofservice+dependent*yrofservice+female+assignmentcategory+year+avg_female+avg_age+avg_income+  avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay+mallsalessf + storesqft + totalcases+logsalesvalue,data = df1)
+
+
+summary(model5_241IV,diagnostics = TRUE) 
+summary(model5_242IV,diagnostics = TRUE) 
+summary(model5_243IV,diagnostics = TRUE) ##none of them pass the test
+
+##try ols model
+model5_21 = lm(logreturnvalue~sumoftraining*yrofservice+factor(store_number)+female+assignmentcategory+sa_rateofpay+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+logsalesvalue,data = df1)
+
+
+stargazer(model5_21,
+          title="Regression Results", type="text", 
+          digit=4,
+          column.labels=c("Model-1"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001)) 
+
+bptest(model5_21)#hetero
+gqtest(model5_21)
+consstder <- sqrt(diag(vcovHC(model5_21, type="const"))) # produces normal standard errors
+HWrobstder <- sqrt(diag(vcovHC(model5_21, type="HC1"))) # produces Huber-White robust standard errors 
+clusrobstder <- sqrt(diag(cluster.vcov(model5_21, df1$store_number))) # produces clustered robust standard errors
+
+stargazer(model5_21, model5_21, model5_21,  
+          se=list(consstder, HWrobstder,clusrobstder),
+          title="Regression Results", type="text", 
+          column.labels=c("Normal SE", "HW-Robust SE", "Clustered SE"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001))  # interaction term still insignificant---meaningless
+
+#########################Dependent Variable: salesquantity
+##Key independent variable:sumoftraining &sumoftraining*yrofservice
+model5_31po = glm(salesquantity~sumoftraining*yrofservice+female+assignmentcategory+factor(store_number)+sa_rateofpay+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked, family="poisson", data=df1)
+
+poisson1base <- glm(salesquantity~1, data=df1, family="poisson")
+
+lrtest(model5_31po, poisson1base)     # statistically significant. This model does not fit. 
+
+model5_31nb = glm.nb(salesquantity~sumoftraining*yrofservice+female+assignmentcategory+factor(store_number)+sa_rateofpay+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked,data=df1)
+
+negbinbase<- glm.nb(salesquantity ~ 1, data = df1) #p-value<0.05, the negative binomial model fit
+
+lrtest(model5_31po,model5_31nb)#p-value<0.05, overdispertion ,use the negative binomial model 
+
+
+stargazer(model5_31nb,
+          title="Regression Results", type="text", 
+          digit=4,
+          column.labels=c("Model-1"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001)) #interaction term is significant
+
+gqtest(model5_31nb)
+bptest(model5_31nb)# heteroskedasticity
+
+
+
+consstder <- sqrt(diag(vcovHC(model5_31nb, type="const"))) # produces normal standard errors
+HWrobstder <- sqrt(diag(vcovHC(model5_31nb, type="HC1"))) # produces Huber-White robust standard errors 
+clusrobstder <- sqrt(diag(cluster.vcov(model5_31nb, df1$store_number))) # produces clustered robust standard errors
+
+stargazer(model5_31nb,model5_31nb,model5_31nb,
+          se=list(consstder, HWrobstder,clusrobstder),
+          title="Regression Results", type="text", 
+          column.labels=c("Normal SE", "HW-Robust SE", "Clustered SE"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001)) #the interaction term is significant choose robust SE
+
+stargazer(model5_31nb, 
+          apply.coef = exp, t.auto=F, p.auto = F,
+          title="Regression Results", type="text", 
+          column.labels=c("IRRs"),
+          df=FALSE, digits=4, star.cutoffs = c(0.05,0.01,0.001))
+
+new31=data.frame(sumoftraining=seq(0,8,1),yrofservice=b3,female,assignmentcategory=mean(df2$assignmentcategory,na.rm=T),store_number=37,female=mean(df2$female,na.rm=T),assignmentcategory=mean(df2$assignmentcategory,na.rm=T),year=mean(df2$year,na.rm=T),avg_female=mean(df2$avg_female,na.rm=T),avg_age=mean(df2$avg_age,na.rm=T),avg_income=mean(df2$avg_income,na.rm=T),avg_homeowner=mean(df2$avg_homeowner,na.rm=T),avg_residency=mean(df2$avg_residency,na.rm=T),avg_childowner=mean(df2$avg_childowner,na.rm=T),numofmonths_worked=mean(df2$numofmonths_worked,na.rm=T),sa_rateofpay=mean(df2$sa_rateofpay,na.rm=T))
+
+new32=data.frame(sumoftraining=seq(0,8,1),yrofservice=b4,female,assignmentcategory=mean(df2$assignmentcategory,na.rm=T),store_number=37,female=mean(df2$female,na.rm=T),assignmentcategory=mean(df2$assignmentcategory,na.rm=T),year=mean(df2$year,na.rm=T),avg_female=mean(df2$avg_female,na.rm=T),avg_age=mean(df2$avg_age,na.rm=T),avg_income=mean(df2$avg_income,na.rm=T),avg_homeowner=mean(df2$avg_homeowner,na.rm=T),avg_residency=mean(df2$avg_residency,na.rm=T),avg_childowner=mean(df2$avg_childowner,na.rm=T),numofmonths_worked=mean(df2$numofmonths_worked,na.rm=T),sa_rateofpay=mean(df2$sa_rateofpay,na.rm=T))
+
+
+
+new31$returnquantity=predict(model5_31nb,new31)
+new32$returnquantity=predict(model5_31nb,new32)
+
+
+p = ggplot() + 
+  geom_line(data = new31, aes(x = sumoftraining, y = returnquantity), color = "blue") +
+  geom_line(data = new32, aes(x = sumoftraining, y = returnquantity), color = "red") +
+  xlab('sum of trained modules') +
+  ylab('return quantity')
+show(p)
+
+
+
+
+
+
+
+#########################Dependent Variable: returnquantity
+##Key independent variable:Sumoftraining & sumoftraining*yrofservice
+model5_41po = glm(returnquantity~sumoftraining*yrofservice+female+assignmentcategory+factor(store_number)+sa_rateofpay+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+salesquantity, family="poisson", data=df1)
+
+poisson1base <- glm(returnquantity~1, data=df1, family="poisson")
+
+lrtest(model5_41po, poisson1base)     # statistically significant. This model does not fit. 
+
+model5_41nb = glm.nb(returnquantity~sumoftraining*yrofservice+female+assignmentcategory+factor(store_number)+sa_rateofpay+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+salesquantity,data=df1)
+
+negbinbase<- glm.nb(salesquantity ~ 1, data = df1)  
+lrtest(model5_41nb, negbinbase) # statistically significant. This model fit the data. 
+
+lrtest(model5_41po,model5_41nb)#p-value<0.05, overdispertion ,use the negative binomial model 
+
+
+
+
+stargazer(model5_41nb,
+          title="Regression Results", type="text", 
+          digit=4,
+          column.labels=c("Model-1"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001)) #not significant
+bptest(model5_41nb)#hetero
+gqtest(model5_41nb)
+consstder <- sqrt(diag(vcovHC(model5_41nb, type="const"))) # produces normal standard errors
+HWrobstder <- sqrt(diag(vcovHC(model5_41nb, type="HC1"))) # produces Huber-White robust standard errors 
+clusrobstder <- sqrt(diag(cluster.vcov(model5_41nb, df1$store_number))) # produces clustered robust standard errors
+
+stargazer(model5_41nb, model5_41nb,model5_41nb,
+          se=list(consstder, HWrobstder,clusrobstder),
+          title="Regression Results", type="text", 
+          column.labels=c("Normal SE", "HW-Robust SE", "Clustered SE"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001))#insignificant
+
+
+
+
+```
+
+```{r}
+##############Question5 management group@@@
+#############for sales people group df1
+#experience & less experience
+boundary= quantile(df2$yrofservice,c(0.3333,0.6666),na.rm=TRUE)
+#model
+boundary=c(1.098612,2.613772)
+b3=1.098612
+b4=2.613772
+
+##Key independent variable:sumoftraining&Sumoftraining*yrofservice
+#IV: maritalstatus+dependent combination
+#control variable with store num
+model5_131IV_1 =ivreg(logsalesvalue~sumoftraining*yrofservice+female+assignmentcategory+factor(store_number)+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay|maritalstatus*yrofservice+female+assignmentcategory+year+avg_female+avg_age+avg_income+  avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+factor(store_number)+sa_rateofpay,data = df2)
+
+model5_132IV_1 =ivreg(logsalesvalue~sumoftraining*yrofservice+female+assignmentcategory+factor(store_number)+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay|dependent*yrofservice+female+assignmentcategory+year+avg_female+avg_age+avg_income+  avg_homeowner+avg_residency+avg_childowner+numofmonths_worked++factor(store_number)++sa_rateofpay,data = df2)
+
+model5_133IV_1 =ivreg(logsalesvalue~sumoftraining*yrofservice+female+assignmentcategory+factor(store_number)+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay|maritalstatus*yrofservice+dependent*yrofservice+female+assignmentcategory+year+avg_female+avg_age+avg_income+  avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+factor(store_number)+sa_rateofpay,data = df2)
+
+summary(model5_131IV_1,diagnostics = TRUE) 
+summary(model5_132IV_1,diagnostics = TRUE) 
+summary(model5_133IV_1,diagnostics = TRUE) #The Weak instrument test (F-test) is less than 10, indicating all the instrument is not relevant.
+
+##Key independent variable:Sumoftraining*yrofservice
+#IV: maritalstatus+dependent combination
+#control variable with mallsalessf + storesqft + totalcases 
+model5_141IV_1 =ivreg(logsalesvalue~sumoftraining*yrofservice+female+assignmentcategory+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay+mallsalessf + storesqft + totalcases|maritalstatus*yrofservice+female+assignmentcategory+year+avg_female+avg_age+avg_income+  avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay+mallsalessf + storesqft + totalcases,data = df2)
+
+model5_142IV_1 =ivreg(logsalesvalue~sumoftraining*yrofservice+female+assignmentcategory+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay+mallsalessf + storesqft + totalcases|dependent*yrofservice+female+assignmentcategory+year+avg_female+avg_age+avg_income+  avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay+mallsalessf + storesqft + totalcases,data = df2)
+
+model5_143IV_1 =ivreg(logsalesvalue~sumoftraining*yrofservice+female+assignmentcategory+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay+mallsalessf + storesqft + totalcases|maritalstatus*yrofservice+dependent*yrofservice+female+assignmentcategory+year+avg_female+avg_age+avg_income+  avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay+mallsalessf + storesqft + totalcases,data = df2)
+
+
+summary(model5_141IV_1,diagnostics = TRUE) 
+summary(model5_142IV_1,diagnostics = TRUE) 
+summary(model5_143IV_1,diagnostics = TRUE) ##all of them cannot pass the test
+
+##try ols model instead
+model5_11_1 = lm(logsalesvalue~sumoftraining*yrofservice+factor(store_number)+female+assignmentcategory+sa_rateofpay+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked,data = df2)
+
+
+stargazer(model5_11_1,
+          title="Regression Results", type="text", 
+          digit=4,
+          column.labels=c("Model-1"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001)) #insignificant
+
+bptest(model5_11_1)
+gqtest(model5_11_1)
+consstder <- sqrt(diag(vcovHC(model5_11_1, type="const"))) # produces normal standard errors
+HWrobstder <- sqrt(diag(vcovHC(model5_11_1, type="HC1"))) # produces Huber-White robust standard errors 
+clusrobstder <- sqrt(diag(cluster.vcov(model5_11_1, df2$store_number))) # produces clustered robust standard errors
+
+stargazer(model5_11_1, model5_11_1, model5_11_1,  
+          se=list(consstder, HWrobstder,clusrobstder),
+          title="Regression Results", type="text", 
+          column.labels=c("Normal SE", "HW-Robust SE", "Clustered SE"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001))  # insignificant the model did not work
+
+######################Denpendent Variable: logreturnsvalues
+##Key independent variable:sumoftraining & sumoftraining*yrofservice
+#IV: maritalstatus+dependent combination
+#control variable:with store num
+
+model5_231IV_1 =ivreg(logreturnvalue~sumoftraining*yrofservice+female+assignmentcategory+factor(store_number)+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay|maritalstatus*yrofservice+female+assignmentcategory+year+avg_female+avg_age+avg_income+  avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+factor(store_number)+sa_rateofpay+logsalesvalue,data = df2)
+
+model5_232IV_1 =ivreg(logreturnvalue~sumoftraining*yrofservice+female+assignmentcategory+factor(store_number)+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay|dependent*yrofservice+female+assignmentcategory+year+avg_female+avg_age+avg_income+  avg_homeowner+avg_residency+avg_childowner+numofmonths_worked++factor(store_number)+sa_rateofpay+logsalesvalue,data = df2)
+
+model5_233IV_1 =ivreg(logreturnvalue~sumoftraining*yrofservice+female+assignmentcategory+factor(store_number)+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay|maritalstatus*yrofservice+dependent*yrofservice+female+assignmentcategory+year+avg_female+avg_age+avg_income+  avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+factor(store_number)+sa_rateofpay+logsalesvalue,data = df2)
+
+summary(model5_231IV_1,diagnostics = TRUE) 
+summary(model5_232IV_1,diagnostics = TRUE) 
+summary(model5_233IV_1,diagnostics = TRUE) #The Weak instrument test (F-test) is less than 10, indicating all the instrument is not relevant.
+
+#use three control vari to replcae store num
+model5_241IV_1 =ivreg(logreturnvalue~sumoftraining*yrofservice+female+assignmentcategory+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay+mallsalessf + storesqft + totalcases+logsalesvalue|maritalstatus*yrofservice+female+assignmentcategory+year+avg_female+avg_age+avg_income+  avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay+mallsalessf + storesqft + totalcases+logsalesvalue,data = df2)
+
+model5_242IV_1 =ivreg(logreturnvalue~sumoftraining*yrofservice+female+assignmentcategory+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay+mallsalessf + storesqft + totalcases+logsalesvalue|dependent*yrofservice+female+assignmentcategory+year+avg_female+avg_age+avg_income+  avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay+mallsalessf + storesqft + totalcases+logsalesvalue,data = df2)
+
+model5_243IV_1 =ivreg(logreturnvalue~sumoftraining*yrofservice+female+assignmentcategory+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay+mallsalessf + storesqft + totalcases+logsalesvalue|maritalstatus*yrofservice+dependent*yrofservice+female+assignmentcategory+year+avg_female+avg_age+avg_income+  avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay+mallsalessf + storesqft + totalcases+logsalesvalue,data = df2)
+
+
+summary(model5_241IV_1,diagnostics = TRUE) 
+summary(model5_242IV_1,diagnostics = TRUE) 
+summary(model5_243IV_1,diagnostics = TRUE) ##none of them pass the test
+
+##try ols model
+model5_21_1 = lm(logreturnvalue~sumoftraining*yrofservice+factor(store_number)+female+assignmentcategory+sa_rateofpay+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+logsalesvalue,data = df2)
+
+
+stargazer(model5_21_1,
+          title="Regression Results", type="text", 
+          digit=4,
+          column.labels=c("Model-1"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001)) #insig
+
+bptest(model5_21_1)
+gqtest(model5_21_1)
+consstder <- sqrt(diag(vcovHC(model5_21_1, type="const"))) # produces normal standard errors
+HWrobstder <- sqrt(diag(vcovHC(model5_21_1, type="HC1"))) # produces Huber-White robust standard errors 
+clusrobstder <- sqrt(diag(cluster.vcov(model5_21_1, df2$store_number))) # produces clustered robust standard errors
+
+stargazer(model5_21_1, model5_21_1, model5_21_1,  
+          se=list(consstder, HWrobstder,clusrobstder),
+          title="Regression Results", type="text", 
+          column.labels=c("Normal SE", "HW-Robust SE", "Clustered SE"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001))  # interaction term still insignificant---meaningless
+
+#########################Dependent Variable: salesquantity
+##Key independent variable:sumoftraining &sumoftraining*yrofservice
+model5_31po_1 = glm(salesquantity~sumoftraining*yrofservice+female+assignmentcategory+factor(store_number)+sa_rateofpay+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked, family="poisson", data=df2)
+
+poisson1base <- glm(salesquantity~1, data=df2, family="poisson")
+
+lrtest(model5_31po_1, poisson1base)     # statistically significant. This model does not fit. 
+
+model5_31nb_1 = glm.nb(salesquantity~sumoftraining*yrofservice+female+assignmentcategory+factor(store_number)+sa_rateofpay+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked,data=df2)
+
+negbinbase<- glm.nb(salesquantity ~ 1, data = df2) #p-value<0.05, the negative binomial model fit
+
+
+lrtest(model5_31po_1,model5_31nb_1)#p-value<0.05, overdispertion ,use the negative binomial model 
+
+
+gqtest(model5_31nb_1)
+bptest(model5_31nb_1)# heteroskedasticity
+
+
+
+stargazer(model5_31nb_1, 
+          apply.coef = exp, t.auto=F, p.auto = F,
+          title="Regression Results", type="text", 
+          column.labels=c("IRRs"),
+          df=FALSE, digits=4, star.cutoffs = c(0.05,0.01,0.001))
+new31_1=data.frame(sumoftraining=seq(0,8,1),yrofservice=b3,female,assignmentcategory=mean(df2$assignmentcategory,na.rm=T),store_number=37,female=mean(df2$female,na.rm=T),assignmentcategory=mean(df2$assignmentcategory,na.rm=T),year=mean(df2$year,na.rm=T),avg_female=mean(df2$avg_female,na.rm=T),avg_age=mean(df2$avg_age,na.rm=T),avg_income=mean(df2$avg_income,na.rm=T),avg_homeowner=mean(df2$avg_homeowner,na.rm=T),avg_residency=mean(df2$avg_residency,na.rm=T),avg_childowner=mean(df2$avg_childowner,na.rm=T),numofmonths_worked=mean(df2$numofmonths_worked,na.rm=T),sa_rateofpay=mean(df2$sa_rateofpay,na.rm=T))
+
+new32_1=data.frame(sumoftraining=seq(0,8,1),yrofservice=b4,female,assignmentcategory=mean(df2$assignmentcategory,na.rm=T),store_number=37,female=mean(df2$female,na.rm=T),assignmentcategory=mean(df2$assignmentcategory,na.rm=T),year=mean(df2$year,na.rm=T),avg_female=mean(df2$avg_female,na.rm=T),avg_age=mean(df2$avg_age,na.rm=T),avg_income=mean(df2$avg_income,na.rm=T),avg_homeowner=mean(df2$avg_homeowner,na.rm=T),avg_residency=mean(df2$avg_residency,na.rm=T),avg_childowner=mean(df2$avg_childowner,na.rm=T),numofmonths_worked=mean(df2$numofmonths_worked,na.rm=T),sa_rateofpay=mean(df2$sa_rateofpay,na.rm=T))
+
+new31_1$returnquantity=predict(model5_31nb_1,new31_1,type="response")
+new32_1$returnquantity=predict(model5_31nb_1,new32_1,type="response")
+
+
+p = ggplot() + 
+  geom_line(data = new31_1, aes(x = sumoftraining, y = returnquantity), color = "blue") +
+  geom_line(data = new32_1, aes(x = sumoftraining, y = returnquantity), color = "red") +
+  xlab('sum of trained modules') +
+  ylab('return quantity')
+show(p)
+
+
+
+#########################Dependent Variable: returnquantity
+##Key independent variable:Sumoftraining & sumoftraining*yrofservice
+model5_41po_1 = glm(returnquantity~sumoftraining*yrofservice+female+assignmentcategory+factor(store_number)+sa_rateofpay+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+salesquantity, family="poisson", data=df2)
+
+poisson1base <- glm(returnquantity~1, data=df2, family="poisson")
+
+lrtest(model5_41po_1, poisson1base)     # statistically significant. This model does not fit. 
+
+model5_41nb_1 = glm.nb(returnquantity~sumoftraining*yrofservice+female+assignmentcategory+factor(store_number)+sa_rateofpay+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+salesquantity,data=df2)
+
+negbinbase<- glm.nb(salesquantity ~ 1, data = df2)  
+lrtest(model5_41nb_1, negbinbase) # statistically significant. This model fit the data. 
+
+lrtest(model5_41po_1,model5_41nb_1)#p-value<0.05, overdispertion ,use the possion model but poisson test is significant 
+
+
+
+```
+#===========================================================================================================================
+## Question 6: Is the impact of training on salesperformance different for employees who completed the service and selling training(i.e.,those who know how to sell)from that for employees who did not complete the service and selling training(i.e.,those who do not know how to sell)?
+#===========================================================================================================================
+```{r}
+#############====================
+#for sales people group df1
+##############+===================
+#experience & less experience
+
+##Key independent variable:Sumoftraining*yrofservice
+#IV: maritalstatus+dependent combination
+#control variable with store num
+model6_131IV =ivreg(logsalesvalue~pk*service_selling+yrofservice+female+assignmentcategory+factor(store_number)+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay+yrofservice|maritalstatus*service_selling+female+assignmentcategory+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+factor(store_number)+sa_rateofpay+yrofservice,data = df1)
+
+model6_132IV =ivreg(logsalesvalue~pk*service_selling+female+assignmentcategory+factor(store_number)+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay+yrofservice|dependent*service_selling+female+assignmentcategory+year+avg_female+avg_age+avg_income+  avg_homeowner+avg_residency+avg_childowner+numofmonths_worked++factor(store_number)+sa_rateofpay+yrofservice,data = df1)
+
+model6_133IV =ivreg(logsalesvalue~pk*service_selling+female+assignmentcategory+factor(store_number)+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay+yrofservice|maritalstatus*service_selling+dependent*service_selling+female+assignmentcategory+year+avg_female+avg_age+avg_income+  avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+factor(store_number)+yrofservice+sa_rateofpay,data = df1)
+
+summary(model6_131IV,diagnostics = TRUE) 
+summary(model6_132IV,diagnostics = TRUE) 
+summary(model6_133IV,diagnostics = TRUE) #The Weak instrument test (F-test) is less than 10, indicating all the instrument is not relevant.
+
+##Key independent variable:pk*service_selling
+#IV: maritalstatus+dependent combination
+#control variable with mallsalessf + storesqft + totalcases 
+model6_141IV =ivreg(logsalesvalue~pk*factor(service_selling)+female+assignmentcategory+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay+mallsalessf + storesqft + totalcases+yrofservice|maritalstatus*factor(service_selling)+female+assignmentcategory+year+avg_female+avg_age+avg_income+  avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay+mallsalessf + storesqft + totalcases+yrofservice,data = df1)
+
+model6_142IV =ivreg(logsalesvalue~pk*factor(service_selling)+female+assignmentcategory+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay+mallsalessf + storesqft + totalcases+yrofservice|dependent*factor(service_selling)+female+assignmentcategory+year+avg_female+avg_age+avg_income+  avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay+mallsalessf + storesqft + totalcases+yrofservice,data = df1)
+
+model6_143IV =ivreg(logsalesvalue~pk*factor(service_selling)+female+assignmentcategory+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay+mallsalessf + storesqft + totalcases+yrofservice|maritalstatus*factor(service_selling)+dependent*factor(service_selling)+female+assignmentcategory+year+avg_female+avg_age+avg_income+  avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay+mallsalessf + storesqft + totalcases+yrofservice,data = df1)
+
+
+summary(model6_141IV,diagnostics = TRUE) 
+summary(model6_142IV,diagnostics = TRUE) 
+summary(model6_143IV,diagnostics = TRUE) # The Weak instrument test (F-test) is less than 10, indicating all the instrument is not relevant.
+
+
+
+##try ols model
+model6_11 = lm(logsalesvalue~pk*factor(service_selling)+factor(store_number)+yrofservice+female+assignmentcategory+sa_rateofpay+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked,data = df1)
+
+
+stargazer(model6_11,
+          title="Regression Results", type="text", 
+          digit=4,
+          column.labels=c("Model-1"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001)) #insig
+
+bptest(model6_11)#hetero
+gqtest(model6_11)
+consstder <- sqrt(diag(vcovHC(model6_11, type="const"))) # produces normal standard errors
+HWrobstder <- sqrt(diag(vcovHC(model6_11, type="HC1"))) # produces Huber-White robust standard errors 
+clusrobstder <- sqrt(diag(cluster.vcov(model6_11, df1$store_number))) # produces clustered robust standard errors
+
+stargazer(model6_11, model6_11, model6_11,  
+          se=list(consstder, HWrobstder,clusrobstder),
+          title="Regression Results", type="text", 
+          column.labels=c("Normal SE", "HW-Robust SE", "Clustered SE"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001))  # insignificant
+
+
+######################Denpendent Variable: logreturnsvalues
+##Key independent variable:pk & pk*factor(service_selling)
+#IV: maritalstatus+dependent combination
+#control variable:with store num
+
+model6_231IV =ivreg(logreturnvalue~pk*factor(service_selling)+female+assignmentcategory+factor(store_number)+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay+yrofservice|maritalstatus*factor(service_selling)+female+assignmentcategory+year+avg_female+avg_age+avg_income+  avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+factor(store_number)+sa_rateofpay+logsalesvalue+yrofservice,data = df1)
+
+model6_232IV =ivreg(logreturnvalue~pk*factor(service_selling)+female+assignmentcategory+factor(store_number)+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay+yrofservice|dependent*factor(service_selling)+female+assignmentcategory+year+avg_female+avg_age+avg_income+  avg_homeowner+avg_residency+avg_childowner+numofmonths_worked++factor(store_number)+sa_rateofpay+logsalesvalue+yrofservice,data = df1)
+
+model6_233IV =ivreg(logreturnvalue~pk*factor(service_selling)+female+assignmentcategory+factor(store_number)+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay+yrofservice|maritalstatus*factor(service_selling)+dependent*factor(service_selling)+female+assignmentcategory+year+avg_female+avg_age+avg_income+  avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+factor(store_number)+sa_rateofpay+logsalesvalue+yrofservice,data = df1)
+
+summary(model6_231IV,diagnostics = TRUE) 
+summary(model6_232IV,diagnostics = TRUE) 
+summary(model6_233IV,diagnostics = TRUE) #The Weak instrument test (F-test) is less than 10, indicating all the instrument is not relevant.
+
+#use three control vari to replcae store num
+model6_241IV =ivreg(logreturnvalue~pk*factor(service_selling)+female+assignmentcategory+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay+mallsalessf + storesqft + totalcases+logsalesvalue+yrofservice|maritalstatus*factor(service_selling)+female+assignmentcategory+year+avg_female+avg_age+avg_income+  avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay+mallsalessf + storesqft + totalcases+logsalesvalue+yrofservice,data = df1)
+
+model6_242IV =ivreg(logreturnvalue~pk*factor(service_selling)+female+assignmentcategory+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay+mallsalessf + storesqft + totalcases+logsalesvalue+yrofservice|dependent*factor(service_selling)+female+assignmentcategory+year+avg_female+avg_age+avg_income+  avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay+mallsalessf + storesqft + totalcases+logsalesvalue+yrofservice,data = df1)
+
+model6_243IV =ivreg(logreturnvalue~pk*factor(service_selling)+female+assignmentcategory+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay+mallsalessf + storesqft + totalcases+logsalesvalue+yrofservice|maritalstatus*factor(service_selling)+dependent*factor(service_selling)+female+assignmentcategory+year+avg_female+avg_age+avg_income+  avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay+mallsalessf + storesqft + totalcases+logsalesvalue+yrofservice,data = df1)
+
+
+summary(model6_241IV,diagnostics = TRUE) 
+summary(model6_242IV,diagnostics = TRUE) 
+summary(model6_243IV,diagnostics = TRUE) ##none of them pass the test
+
+##try ols model
+
+model6_21 = lm(logreturnvalue~pk*factor(service_selling)+factor(store_number)+female+assignmentcategory+sa_rateofpay+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+logsalesvalue+yrofservice,data = df1)
+
+
+stargazer(model6_21,
+          title="Regression Results", type="text", 
+          digit=4,
+          column.labels=c("Model-1"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001))#insignificant 
+
+bptest(model6_21)#hetero
+gqtest(model6_21)
+consstder <- sqrt(diag(vcovHC(model6_21, type="const"))) # produces normal standard errors
+HWrobstder <- sqrt(diag(vcovHC(model6_21, type="HC1"))) # produces Huber-White robust standard errors 
+clusrobstder <- sqrt(diag(cluster.vcov(model6_21, df1$store_number))) # produces clustered robust standard errors
+
+stargazer(model6_21, model6_21, model6_21,  
+          se=list(consstder, HWrobstder,clusrobstder),
+          title="Regression Results", type="text", 
+          column.labels=c("Normal SE", "HW-Robust SE", "Clustered SE"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001))  #insignificant insignificant---meaningless
+
+#########################Dependent Variable: salesquantity
+##Key independent variable:pk &pk*factor(service_selling)
+
+model6_31po = glm(salesquantity~pk*factor(service_selling)+female+assignmentcategory+factor(store_number)+sa_rateofpay+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+yrofservice, family="poisson", data=df1)
+
+poisson1base <- glm(salesquantity~1, data=df1, family="poisson")
+
+lrtest(model6_31po, poisson1base)     # statistically significant. This model does not fit. 
+
+model6_31nb = glm.nb(salesquantity~pk*factor(service_selling)+female+assignmentcategory+factor(store_number)+sa_rateofpay+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+yrofservice,data=df1)
+
+negbinbase<- glm.nb(salesquantity ~ 1, data = df1) #p-value<0.05, the negative binomial model fit
+
+
+lrtest(model6_31po,model6_31nb)#p-value<0.05, overdispertion ,use the negative binomial model 
+
+
+stargazer(model6_31nb,
+          title="Regression Results", type="text", 
+          digit=4,
+          column.labels=c("Model-1"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001)) #interaction term is significant
+
+gqtest(model6_31nb)
+bptest(model6_31nb)# heteroskedasticity
+
+
+
+consstder <- sqrt(diag(vcovHC(model6_31nb, type="const"))) # produces normal standard errors
+HWrobstder <- sqrt(diag(vcovHC(model6_31nb, type="HC1"))) # produces Huber-White robust standard errors 
+clusrobstder <- sqrt(diag(cluster.vcov(model6_31nb, df1$store_number))) # produces clustered robust standard errors
+
+stargazer(model6_31nb,model6_31nb,model6_31nb,
+          se=list(consstder, HWrobstder,clusrobstder),
+          title="Regression Results", type="text", 
+          column.labels=c("Normal SE", "HW-Robust SE", "Clustered SE"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001)) #the interaction term is insignificant 
+
+#back to ols
+
+
+model6_31=lm(salesquantity~pk*factor(service_selling)+female+assignmentcategory+factor(store_number)+sa_rateofpay+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+yrofservice,data=df1)
+
+
+bptest(model6_31)
+gqtest(model6_31)
+consstder <- sqrt(diag(vcovHC(model6_31, type="const"))) # produces normal standard errors
+HWrobstder <- sqrt(diag(vcovHC(model6_31, type="HC1"))) # produces Huber-White robust standard errors 
+clusrobstder <- sqrt(diag(cluster.vcov(model6_31, df1$store_number))) # produces clustered robust standard errors
+
+stargazer(model6_31, model6_31, model6_31,  
+          se=list(consstder, HWrobstder,clusrobstder),
+          title="Regression Results", type="text", 
+          column.labels=c("Normal SE", "HW-Robust SE", "Clustered SE"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001)) 
+
+
+#########################Dependent Variable: returnquantity
+##Key independent variable:Sumoftraining & pk*factor(service_selling)
+model6_41po = glm(returnquantity~pk*factor(service_selling)+female+assignmentcategory+factor(store_number)+sa_rateofpay+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+salesquantity+yrofservice, family="poisson", data=df1)
+
+poisson1base <- glm(returnquantity~1, data=df1, family="poisson")
+
+lrtest(model6_41po, poisson1base)     # statistically significant. This model does not fit. 
+
+model6_41nb = glm.nb(returnquantity~pk*factor(service_selling)+female+assignmentcategory+factor(store_number)+sa_rateofpay+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+salesquantity+yrofservice,data=df1)
+
+negbinbase<- glm.nb(salesquantity ~ 1, data = df1)  
+lrtest(model6_41nb, negbinbase) # statistically significant. This model fit the data. 
+
+lrtest(model6_41po,model6_41nb)#p-value<0.05, overdispertion ,use the negative binomial model 
+
+stargazer(model6_41nb,
+          title="Regression Results", type="text", 
+          digit=4,
+          column.labels=c("Model-1"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001)) #not significant
+bptest(model6_41nb)#hetero
+gqtest(model6_41nb)
+consstder <- sqrt(diag(vcovHC(model6_41nb, type="const"))) # produces normal standard errors
+HWrobstder <- sqrt(diag(vcovHC(model6_41nb, type="HC1"))) # produces Huber-White robust standard errors 
+clusrobstder <- sqrt(diag(cluster.vcov(model6_41nb, df1$store_number))) # produces clustered robust standard errors
+
+stargazer(model6_41nb, model6_41nb,model6_41nb,
+          se=list(consstder, HWrobstder,clusrobstder),
+          title="Regression Results", type="text", 
+          column.labels=c("Normal SE", "HW-Robust SE", "Clustered SE"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001))#insignificant
+model6_41=lm(returnquantity~pk*factor(factor(service_selling))+female+assignmentcategory+factor(store_number)+sa_rateofpay+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+salesquantity+yrofservice,data=df1)
+
+
+stargazer(model6_41, 
+          apply.coef = exp, t.auto=F, p.auto = F,
+          title="Regression Results", type="text", 
+          column.labels=c("IRRs"),
+          df=FALSE, digits=4, star.cutoffs = c(0.05,0.01,0.001)) 
+bptest(model6_41)
+gqtest(model6_41)
+
+
+consstder <- sqrt(diag(vcovHC(model6_41, type="const"))) # produces normal standard errors
+HWrobstder <- sqrt(diag(vcovHC(model6_41, type="HC1"))) # produces Huber-White robust standard errors 
+clusrobstder <- sqrt(diag(cluster.vcov(model6_41, df1$store_number))) # produces clustered robust standard errors
+
+stargazer(model6_41, model6_41, model6_41,  
+          se=list(consstder, HWrobstder,clusrobstder),
+          title="Regression Results", type="text", 
+          column.labels=c("Normal SE", "HW-Robust SE", "Clustered SE"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001)) #insig
+
+
+
+
+```
+
+```{r}
+##############Question6 management group@@@
+#############for sales people group df2
+
+
+##Key independent variable:sumoftraining&pk*factor(service_selling)
+#IV: maritalstatus+dependent combination
+#control variable with store num
+model6_131IV_1 =ivreg(logsalesvalue~pk*factor(service_selling)+female+assignmentcategory+factor(store_number)+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay+yrofservice|maritalstatus*factor(service_selling)+female+assignmentcategory+year+avg_female+avg_age+avg_income+  avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+factor(store_number)+sa_rateofpay+yrofservice,data = df2)
+
+model6_132IV_1 =ivreg(logsalesvalue~pk*factor(service_selling)+female+assignmentcategory+factor(store_number)+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay|dependent*factor(service_selling)+female+assignmentcategory+year+avg_female+avg_age+avg_income+  avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+factor(store_number)+sa_rateofpay+yrofservice,data = df2)
+
+model6_133IV_1 =ivreg(logsalesvalue~pk*factor(service_selling)+female+assignmentcategory+factor(store_number)+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay+yrofservice|maritalstatus*factor(service_selling)+dependent*factor(service_selling)+female+assignmentcategory+year+avg_female+avg_age+avg_income+  avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+factor(store_number)+sa_rateofpay+yrofservice,data = df2)
+
+summary(model6_131IV_1,diagnostics = TRUE) 
+summary(model6_132IV_1,diagnostics = TRUE) 
+summary(model6_133IV_1,diagnostics = TRUE) #The Weak instrument test (F-test) is less than 10, indicating all the instrument is not relevant.
+
+##Key independent variable:pk & pk*factor(service_selling)
+#IV: maritalstatus+dependent combination
+#control variable with mallsalessf + storesqft + totalcases 
+model6_141IV_1 =ivreg(logsalesvalue~pk*factor(service_selling)+female+assignmentcategory+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay+mallsalessf + storesqft + totalcases+yrofservice|maritalstatus*factor(service_selling)+female+assignmentcategory+year+avg_female+avg_age+avg_income+  avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay+mallsalessf + storesqft + totalcases+yrofservice,data = df2)
+
+model6_142IV_1 =ivreg(logsalesvalue~pk*factor(service_selling)+female+assignmentcategory+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay+mallsalessf + storesqft + totalcases+yrofservice|dependent*factor(service_selling)+female+assignmentcategory+year+avg_female+avg_age+avg_income+  avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay+mallsalessf + storesqft + totalcases+yrofservice,data = df2)
+
+model6_143IV_1 =ivreg(logsalesvalue~pk*factor(service_selling)+female+assignmentcategory+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay+mallsalessf + storesqft + totalcases+yrofservice|maritalstatus*factor(service_selling)+dependent*factor(service_selling)+female+assignmentcategory+year+avg_female+avg_age+avg_income+  avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay+mallsalessf + storesqft + totalcases+yrofservice,data = df2)
+
+
+summary(model6_141IV_1,diagnostics = TRUE) 
+summary(model6_142IV_1,diagnostics = TRUE) 
+summary(model6_143IV_1,diagnostics = TRUE) ##all of them cannot pass the test
+
+##try ols model instead
+model6_11_1 = lm(logsalesvalue~pk*factor(service_selling)+factor(store_number)+female+assignmentcategory+sa_rateofpay+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+yrofservice,data = df2)
+
+
+stargazer(model6_11_1,
+          title="Regression Results", type="text", 
+          digit=4,
+          column.labels=c("Model-1"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001)) #insign
+
+bptest(model6_11_1)
+gqtest(model6_11_1)
+consstder <- sqrt(diag(vcovHC(model6_11_1, type="const"))) # produces normal standard errors
+HWrobstder <- sqrt(diag(vcovHC(model6_11_1, type="HC1"))) # produces Huber-White robust standard errors 
+clusrobstder <- sqrt(diag(cluster.vcov(model6_11_1, df2$store_number))) # produces clustered robust standard errors
+
+stargazer(model6_11_1, model6_11_1, model6_11_1,  
+          se=list(consstder, HWrobstder,clusrobstder),
+          title="Regression Results", type="text", 
+          column.labels=c("Normal SE", "HW-Robust SE", "Clustered SE"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001))  # insignificant the model did not work
+
+######################Denpendent Variable: logreturnsvalues
+##Key independent variable:sumoftraining & pk*factor(service_selling)
+#IV: maritalstatus+dependent combination
+#control variable:with store num
+model6_231IV_1 =ivreg(logreturnvalue~pk*factor(service_selling)+female+assignmentcategory+factor(store_number)+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay+yrofservice|maritalstatus*factor(service_selling)+female+assignmentcategory+year+avg_female+avg_age+avg_income+  avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+factor(store_number)+sa_rateofpay+logsalesvalue+yrofservice,data = df2)
+
+model6_232IV_1 =ivreg(logreturnvalue~pk*factor(service_selling)+female+assignmentcategory+factor(store_number)+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay+yrofservice|dependent*factor(service_selling)+female+assignmentcategory+year+avg_female+avg_age+avg_income+  avg_homeowner+avg_residency+avg_childowner+numofmonths_worked++factor(store_number)+sa_rateofpay+logsalesvalue+yrofservice,data = df2)
+
+model6_233IV_1 =ivreg(logreturnvalue~pk*factor(service_selling)+female+assignmentcategory+factor(store_number)+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay+yrofservice|maritalstatus*factor(service_selling)+dependent*factor(service_selling)+female+assignmentcategory+year+avg_female+avg_age+avg_income+  avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+factor(store_number)+sa_rateofpay+logsalesvalue+yrofservice,data = df2)
+
+summary(model6_231IV_1,diagnostics = TRUE) 
+summary(model6_232IV_1,diagnostics = TRUE) 
+summary(model6_233IV_1,diagnostics = TRUE) #The Weak instrument test (F-test) is less than 10, indicating all the instrument is not relevant.
+
+#use three control vari to replcae store num
+model6_241IV_1 =ivreg(logreturnvalue~pk*factor(service_selling)+female+assignmentcategory+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay+mallsalessf + storesqft + totalcases+logsalesvalue+yrofservice|maritalstatus*factor(service_selling)+female+assignmentcategory+year+avg_female+avg_age+avg_income+  avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay+mallsalessf + storesqft + totalcases+logsalesvalue+yrofservice,data = df2)
+
+model6_242IV_1 =ivreg(logreturnvalue~pk*factor(service_selling)+female+assignmentcategory+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay+mallsalessf + storesqft + totalcases+logsalesvalue+yrofservice|dependent*factor(service_selling)+female+assignmentcategory+year+avg_female+avg_age+avg_income+  avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay+mallsalessf + storesqft + totalcases+logsalesvalue+yrofservice,data = df2)
+
+model6_243IV_1 =ivreg(logreturnvalue~pk*factor(service_selling)+female+assignmentcategory+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay+mallsalessf + storesqft + totalcases+logsalesvalue+yrofservice|maritalstatus*factor(service_selling)+dependent*factor(service_selling)+female+assignmentcategory+year+avg_female+avg_age+avg_income+  avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+sa_rateofpay+mallsalessf + storesqft + totalcases+logsalesvalue+yrofservice,data = df2)
+
+
+summary(model6_241IV_1,diagnostics = TRUE) 
+summary(model6_242IV_1,diagnostics = TRUE) 
+summary(model6_243IV_1,diagnostics = TRUE) ##none of them pass the test
+
+##try ols model
+model6_21_1 = lm(logreturnvalue~pk*factor(service_selling)+factor(store_number)+female+assignmentcategory+sa_rateofpay+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+logsalesvalue+yrofservice,data = df2)
+
+
+stargazer(model6_21_1,
+          title="Regression Results", type="text", 
+          digit=4,
+          column.labels=c("Model-1"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001)) #insig
+
+bptest(model6_21_1)
+gqtest(model6_21_1)
+consstder <- sqrt(diag(vcovHC(model6_21_1, type="const"))) # produces normal standard errors
+HWrobstder <- sqrt(diag(vcovHC(model6_21_1, type="HC1"))) # produces Huber-White robust standard errors 
+clusrobstder <- sqrt(diag(cluster.vcov(model6_21_1, df2$store_number))) # produces clustered robust standard errors
+
+stargazer(model6_21_1, model6_21_1, model6_21_1,  
+          se=list(consstder, HWrobstder,clusrobstder),
+          title="Regression Results", type="text", 
+          column.labels=c("Normal SE", "HW-Robust SE", "Clustered SE"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001))  # interaction term still insignificant---meaningless
+
+#########################Dependent Variable: salesquantity
+##Key independent variable:sumoftraining &pk*factor(service_selling)
+model6_31po_1 = glm(salesquantity~pk*factor(service_selling)+female+assignmentcategory+factor(store_number)+sa_rateofpay+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+yrofservice, family="poisson", data=df2)
+
+poisson1base <- glm(salesquantity~1, data=df2, family="poisson")
+
+lrtest(model6_31po_1, poisson1base)     # statistically significant. This model does not fit. 
+
+model6_31nb_1 = glm.nb(salesquantity~pk*factor(service_selling)+female+assignmentcategory+factor(store_number)+sa_rateofpay+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+yrofservice,data=df2)
+
+negbinbase<- glm.nb(salesquantity ~ 1, data = df2) #p-value<0.05, the negative binomial model fit
+
+
+lrtest(model6_31po_1,model6_31nb_1)#p-value<0.05, overdispertion ,use the negative binomial model 
+
+
+gqtest(model6_31nb_1)
+bptest(model6_31nb_1)# heteroskedasticity
+
+consstder <- sqrt(diag(vcovHC(model6_31nb_1, type="const"))) # produces normal standard errors
+HWrobstder <- sqrt(diag(vcovHC(model6_31nb_1, type="HC1"))) # produces Huber-White robust standard errors 
+clusrobstder <- sqrt(diag(cluster.vcov(model6_31nb_1, df2$store_number))) # produces clustered robust standard errors
+
+stargazer(model6_31nb_1, model6_31nb_1, model6_31nb_1,  
+          se=list(consstder, HWrobstder,clusrobstder),
+          title="Regression Results", type="text", 
+          column.labels=c("Normal SE", "HW-Robust SE", "Clustered SE"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001))#interaction term is insignificant
+
+##back to OLS
+
+model6_31_1=lm(salesquantity~pk*factor(service_selling)+female+assignmentcategory+factor(store_number)+sa_rateofpay+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+yrofservice,data=df2)
+
+
+bptest(model6_31_1)
+gqtest(model6_31_1)
+consstder <- sqrt(diag(vcovHC(model6_31_1, type="const"))) # produces normal standard errors
+HWrobstder <- sqrt(diag(vcovHC(model6_31_1, type="HC1"))) # produces Huber-White robust standard errors 
+clusrobstder <- sqrt(diag(cluster.vcov(model6_31_1, df1$store_number))) # produces clustered robust standard errors
+
+stargazer(model6_31_1, model6_31_1, model6_31_1,  
+          se=list(consstder, HWrobstder,clusrobstder),
+          title="Regression Results", type="text", 
+          column.labels=c("Normal SE", "HW-Robust SE", "Clustered SE"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001)) #insignificant
+
+#########################Dependent Variable: returnquantity
+##Key independent variable:Sumoftraining & pk*factor(service_selling)
+model6_41po_1 = glm(returnquantity~pk*factor(factor(service_selling))+female+assignmentcategory+factor(store_number)+sa_rateofpay+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+salesquantity+yrofservice,family="poisson", data=df2)
+
+poisson1base <- glm(returnquantity~1, data=df2, family="poisson")
+
+lrtest(model6_41po_1, poisson1base)     # statistically significant. This model does not fit. 
+
+model6_41nb_1 = glm.nb(returnquantity~pk*factor(factor(service_selling))+female+assignmentcategory+factor(store_number)+sa_rateofpay+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+salesquantity+yrofservice,data=df2)
+
+negbinbase<- glm.nb(salesquantity ~ 1, data = df2)  
+lrtest(model6_41nb_1, negbinbase) # statistically significant. This model fit the data. 
+
+lrtest(model6_41po_1,model6_41nb_1)#p-value<0.05, overdispertion ,use the possion model but poisson test is significant 
+
+
+
+
+model6_41_1=lm(returnquantity~pk*factor(factor(service_selling))+female+assignmentcategory+factor(store_number)+sa_rateofpay+year+avg_female+avg_age+avg_income+avg_homeowner+avg_residency+avg_childowner+numofmonths_worked+salesquantity+yrofservice,data=df2)
+
+stargazer(model6_41_1, 
+          apply.coef = exp, t.auto=F, p.auto = F,
+          title="Regression Results", type="text", 
+          column.labels=c("IRRs"),
+          df=FALSE, digits=4, star.cutoffs = c(0.05,0.01,0.001)) 
+bptest(model6_41_1)
+gqtest(model6_41_1)
+
+
+consstder <- sqrt(diag(vcovHC(model6_41_1, type="const"))) # produces normal standard errors
+HWrobstder <- sqrt(diag(vcovHC(model6_41_1, type="HC1"))) # produces Huber-White robust standard errors 
+clusrobstder <- sqrt(diag(cluster.vcov(model6_41_1, df2$store_number))) # produces clustered robust standard errors
+
+stargazer(model6_41_1, model6_41_1, model6_41_1,  
+          se=list(consstder, HWrobstder,clusrobstder),
+          title="Regression Results", type="text", 
+          column.labels=c("Normal SE", "HW-Robust SE", "Clustered SE"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001)) #insig
+
+
+
+```
+```
