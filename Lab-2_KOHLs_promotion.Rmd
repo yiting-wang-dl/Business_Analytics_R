@@ -1,0 +1,222 @@
+---
+title: "Lab session-2"
+author: "Necati Ertekin"
+date: ""
+output: word_document
+editor_options: 
+  chunk_output_type: console
+---
+#==========================================================
+## SET UP R MARKDOWN
+#==========================================================
+```{r}
+# You should generally clear the working space at the start of every R session
+rm(list = ls())
+
+setwd("C:/users/tpstech/Desktop/BA SCU/OMIS 2392 Econometrics with R/Lab Sessions")
+
+#install packages
+#install.packages("ggeffects")
+#install.packages("QuantPsyc")
+#install.packages("VIF")
+#install.packages("usdm")
+#install.packages("lmtest")
+#install.packages("multiwayvcov")
+#install.packages("sandwich")
+#install.packages("AER")
+
+# Load libraries everytime you start a session
+library(stargazer)
+library(gdata)
+library(ggplot2)
+library(psych) 
+library(ggeffects)
+#library(QuantPsyc)
+library(VIF)
+#library(usdm)
+#library(lmtest)
+#library(multiwayvcov)
+#library(sandwich)
+#library(foreign)
+#library(AER)
+library(MASS)
+
+# turn off scientific notation except for big numbers. 
+options(scipen = 9)
+```
+#==========================================================
+## LOAD AND EXPLORE DATA
+#==========================================================
+```{r}
+mydata = read.csv("kohls.csv")
+
+## Summary statistics
+stargazer(mydata, type="text", median=TRUE, iqr=TRUE,digits=1, title="Descriptive Statistics")  
+
+ggplot(mydata, aes(y=sales_quantity, x=discountperc)) + geom_point() # we can use the raw variable
+
+# generate a box plot would be more useful 
+mydata$factor_disc = as.factor(mydata$discountperc)
+ggplot(mydata, aes(x=factor_disc, y=sales_quantity, fill=factor_disc)) + geom_boxplot() + 
+  xlab("Discount percentage") + ylab("Sales quantity") 
+# this plot is pretty, though with no useful interpretation, but we still include this because this provide additional confidence to prove to your audience. 
+
+ggplot(mydata, aes(x=sales_quantity)) + geom_histogram(colour="green") # we can use the raw variable
+# sales_quantity only takes positive integer values, which is a count varaible. but the data is normal distributed, which does not need to take the log transformation. 
+```
+#==========================================================
+## BUILD UP MODEL
+#==========================================================
+```{r}
+## Let's see what R thinks a good model is...
+model0 <- lm(sales_quantity~factor(MallType)+MallSalesSQFT+StoreSize+newarrival+original_price+saleprice+discountperc+promodays+SpecialDays+shelflife+inventory+NewDesignOrders+CompetitorAvgDisc, data=mydata)
+
+# step solution, talking to R. take all the control variables and the dependent variable, and tell me the correlations. R does it by removing a varaible and add it back and generates the chi-square for comparison. The R will give a final model with all the contraol variables that are correlated with the dependent variable. It doesn't mean it is a good model, but it is a clean start. 
+
+step <- stepAIC(model0,direction="both")
+step$anova
+
+# useful if we have many control varaibles, so we do not need this. 
+
+## Check Multicollineary
+df <- mydata[c("MallSalesSQFT","StoreSize","newarrival","original_price","saleprice","discountperc","promodays","SpecialDays")]
+
+cor(df) # Generates the correlation matrix. Simiply by generating correlation, >0.8 does not mean multicollinearity. They generate concerns, but still need VIF scores.  
+vif(df) # Calculates VIF scores
+# original price 47.14 and salesprice = 51. Multicolinearity! They are highly correlated. remove one. Remove sales Price. 
+
+df2=mydata[c("MallSalesSQFT","StoreSize","newarrival","original_price","discountperc","promodays","SpecialDays")]
+# "MallType"
+vif(df2) # Calculates VIF scores after removing salesprice
+# but mallsalesSQFT became 21. 
+# exclude mall type, because it only takes numerical, then MallsaelsSQFT became 1. 
+
+## Run the initial model
+model1=lm(sales_quantity~discountperc+original_price+promodays+SpecialDays+MallSalesSQFT+StoreSize+factor(MallType),data=mydata)
+stargazer(model1,  
+          title="Regression Results", type="text", 
+          column.labels=c("Model-1"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001)) 
+
+## add "newarrival" to model-1 and rerun the model
+model2=lm(sales_quantity~discountperc+original_price+promodays+SpecialDays+newarrival+MallSalesSQFT+StoreSize+factor(MallType),data=mydata)
+stargazer(model1, model2, 
+          title="Regression Results", type="text", 
+          column.labels=c("Model-1", "Model-2"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001)) 
+
+anova(model1,model2,test="Chisq") # It seems newarrival improves model fit, let's keep it in the model
+
+## Check the correlation between MallSalesSQFT and MallType, just for the VIF purpose 
+mydata$malltypenum<-ifelse(mydata$MallType=="A",5,ifelse(mydata$MallType=="B",4,ifelse(mydata$MallType=="C",3,ifelse(mydata$MallType=="D",2,1))))  # generate a new variable that includes all the factor variables into 1 variable. 
+cor(mydata$malltypenum,mydata$MallSalesSQFT)
+
+####################may be need to test the relationship b/w malltypenum and mallsalessqft! 
+
+df3=data.frame(mydata$MallSalesSQFT,mydata$malltypenum,mydata$StoreSize,mydata$newarrival,mydata$original_price,mydata$discountperc,mydata$promodays,mydata$SpecialDays)
+vif(df3) # Calculates VIF scores. We should remove MallType from the model
+# now we can see that mallsalesSQFT and malltypenum both have VIF =14. have to remove one. remove the factor variable, because continuous variable always capture more information, a single continuous variable will be better. 
+
+model3=lm(sales_quantity~discountperc+original_price+promodays+SpecialDays+newarrival+MallSalesSQFT+StoreSize,data=mydata)
+stargazer(model2, model3, 
+          title="Regression Results", type="text", 
+          column.labels=c("Model-2", "Model-3"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001)) 
+# still have a counter intuitive significance here for discount percentage. 
+
+## Test heteroscedasticity
+# test heteroscedasticity here is not useful 
+pred<-predict(model3) #obtain fitted values
+residual=resid(model3) # obtain residuals
+
+df <- data.frame(pred,residual)
+ggplot(df, aes(y=residual, x=pred)) + geom_point(size=2.5) # Let's check heteroscedasticity visually first. Do we observe heteroscedasticity?
+
+library(lmtest)
+
+gqtest(model3) # Goldfeld-Quandt test
+bptest(model3) # Breusch-Pagan test. No indication of heteroscedasticity
+
+## 2SLS estimator
+library(AER)
+library(foreign)
+
+model4<- ivreg(sales_quantity~original_price+promodays+SpecialDays+StoreSize+MallSalesSQFT+newarrival+discountperc|inventory+NewDesignOrders+CompetitorAvgDisc+shelflife+original_price+promodays+SpecialDays+StoreSize+MallSalesSQFT+newarrival, data=mydata)  # gives 2SLS estimator
+
+stargazer(model3, model4, 
+          title="Regression Results", type="text", 
+          column.labels=c("Model-3", "Model-4"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001)) 
+
+summary(model4,diagnostics = TRUE)  # Sargan indicates that at least one instrument is not exogeonus
+# week instrument give a F-statistic of 297.5, > 10, it past the assumption of relevant assumption.
+# look at the Sargan value, we want to see an insignificant P-value. This Sargan test give significant P-value, hensce at least one instrument does not meat the exogeonus assumption. 
+
+## Identify weak instruments
+
+df<-mydata[c("sales_quantity","discountperc","inventory","NewDesignOrders","CompetitorAvgDisc","shelflife")]
+cor(df) # Let's look at correlations. It seems shelflife violates the exogeneity assumption. It is highly correlated with the dependent variable
+
+model4B<- ivreg(sales_quantity~original_price+promodays+SpecialDays+StoreSize+MallSalesSQFT+newarrival+discountperc|inventory+NewDesignOrders+CompetitorAvgDisc+original_price+promodays+SpecialDays+StoreSize+MallSalesSQFT+newarrival, data=mydata)  # gives 2SLS estimator
+
+stargazer(model4, model4B, 
+          title="Regression Results", type="text", 
+          column.labels=c("Model-4", "Model-4B"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001)) 
+
+
+summary(model4B,diagnostics = TRUE)  # Sargan indicates that at least one instrument is not exogeonus
+
+# weak instruments give F-statistics 395.276 > 10, past the test
+# Sargon give p-value 0.756, insignificant, past the test
+
+
+## 2SLS estimator for Model-5
+model5A<- ivreg(sales_quantity~original_price+promodays+SpecialDays+StoreSize+MallSalesSQFT+newarrival+discountperc|inventory+NewDesignOrders+original_price+promodays+SpecialDays+StoreSize+MallSalesSQFT+newarrival, data=mydata)  # model with 2 instruments (without shelflife)
+
+model5<- ivreg(sales_quantity~original_price+promodays+SpecialDays+StoreSize+MallSalesSQFT+newarrival+shelflife+discountperc|inventory+NewDesignOrders+original_price+promodays+SpecialDays+StoreSize+MallSalesSQFT+newarrival+shelflife, data=mydata)  # we can add shelflife to the main model
+
+model4C<- ivreg(sales_quantity~original_price+promodays+SpecialDays+StoreSize+MallSalesSQFT+newarrival+shelflife+discountperc|inventory+NewDesignOrders+CompetitorAvgDisc+original_price+promodays+SpecialDays+StoreSize+shelflife+MallSalesSQFT+newarrival, data=mydata)  # with shelf-life, and 3 IV
+
+stargazer(model5A, model5, 
+          title="Regression Results", type="text", 
+          column.labels=c("Model-4C", "Model-5"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001)) 
+# these give the same result, because 4C has one bad IV, but the tests did not catch, so the impact is neglegible. 
+anova(model5A,model5,test="Chisq") # We pick the model with shelflife
+# siginificant 
+
+summary(model5,diagnostics = TRUE) # The Sargan statistic is insignificant. The Weak instrument is significant. Together, they imply that our instruments are good. Since Hausman test is significant, we choose the 2SLS model over the OLS model.
+# Hausman test is significant, it implys that endogeneity present in the OLS model, use 2SLS. 
+
+# do the VIF here, make sure the two IV does not have multicollinearity. 
+
+# How to interprete? : # instruments are good, test restuls are good. 
+# understand your data before come up with business interpretation. 
+```
+
+#==========================================================
+## VISUALIZE RESULTS
+#==========================================================
+```{r}
+# Predict....
+# generate a new data frame. create values for the discount percent, from 0 to 0.8, increase this obs by 0.1 unit. will end up with 9 observations. for other variables, set them to a constant value. The most logic constant value is the avg.  
+mydata$pred<-predict(model5) # Obtain predicted values form the final model
+ggplot(mydata, aes(y=pred, x=discountperc)) + geom_point(size=2.5) # This is not a good plot as discountperc is a discrete variable
+
+mydata$fdisc <- as.factor(mydata$discountperc)
+
+ggplot(mydata, aes(x=fdisc, y=pred, fill=fdisc)) + geom_boxplot() + 
+  xlab("Discount percent") + ylab("Predicted Sales Quantity") # generates boxplot
+
+df3=data.frame(discountperc = seq(0,0.8,0.10),MallSalesSQFT=mean(mydata$MallSalesSQFT),StoreSize=mean(mydata$StoreSize),newarrival=mean(mydata$newarrival),original_price=mean(mydata$original_price),promodays=mean(mydata$promodays),SpecialDays=mean(mydata$SpecialDays),shelflife=mean(mydata$shelflife),inventory=mean(mydata$inventory),NewDesignOrders=mean(mydata$NewDesignOrders)) # We generate a new dataframe with all variables set at their means except the variable discountperc. 
+# seq(0,0.8,0.1) will genenerate, from 0, to 0,8, increase by 0.10. 
+
+df3$predicted_sales <- predict(model5,newdata=df3) # We generate predicted values for the new dataset
+# define the newdata, otherwise it will generate data on the old data frame. 
+# check  df3 dataset 
+
+
+
+```
+
