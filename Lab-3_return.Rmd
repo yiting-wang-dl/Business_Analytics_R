@@ -1,6 +1,5 @@
 ---
-title: "Lab session-3"
-author: "Necati Ertekin"
+title: "Lab 3: Is the return high? If so, how to decress it?"
 output: word_document
 editor_options: 
   chunk_output_type: console
