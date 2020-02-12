@@ -1,7 +1,5 @@
 ---
-title: "Lab session-2"
-author: "Necati Ertekin"
-date: ""
+title: "Lab 2: Does promotion improve sales quantity and revenue? If so, by how much?"
 output: word_document
 editor_options: 
   chunk_output_type: console
