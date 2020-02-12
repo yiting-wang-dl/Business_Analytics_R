@@ -12,7 +12,7 @@ Topics:
 
 Project Lists
 1. Does a Generous Return Policy Affect the Final Price on Ebay?
-2. 
+2. Does promotion improve sales quantity and revenue? If so, by how much?
 3.
 4.
 5. Effectiveness of Salesperson Training Program in Retail Stores
