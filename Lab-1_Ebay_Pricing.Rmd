@@ -1,0 +1,243 @@
+---
+title: "Lab session-1: Does a lenient return policy increase the final price of a product on Ebay?"
+output: word_document
+editor_options: 
+  chunk_output_type: console
+---
+#==========================================================
+## SET UP R MARKDOWN
+#==========================================================
+```{r}
+# You should generally clear the working space at the start of every R session
+rm(list = ls())
+
+# Set the directory
+setwd("C:/Users/tpstech/Desktop/BA SCU/OMIS 2392 Econometrics with R/Lab Sessions")
+
+# install packages
+#install.packages("ggeffects")
+#install.packages("QuantPsyc")
+
+# Load libraries everytime you start a session
+library(stargazer)
+library(gdata)
+library(ggplot2)
+library(psych) 
+library(ggeffects)
+library(QuantPsyc)
+
+# turn off scientific notation except for big numbers. 
+options(scipen = 9)
+```
+
+#==========================================================
+## READ AND EXPLORE DATA
+#==========================================================
+```{r}
+## Loading data
+mydata = read.csv("ebay.csv")
+
+## Summary statistics
+stargazer(mydata, type="text", median=TRUE, iqr=TRUE,digits=1, title="Descriptive Statistics")  
+
+ggplot(mydata, aes(x=finalprice)) + geom_histogram(colour="green") # always start with the dependent variable, which is the final price here. When we look at dollar variable, we need to worry about the log transformation. Look at the data, it is normal distributed, so we don't need to transfer. 
+
+qqnorm(mydata$finalprice) # quantile quantile plot - qqplot. 
+qqline(mydata$finalprice, col=2) # a redline
+# as long as the black dots follow the red line,w ecan say tha the data follows normal distribution. 
+
+# Scatter plot - This is not a good visualization
+ggplot(mydata, aes(x=restockingfee, y=finalprice)) + geom_point(size=2.5) 
+# this does not look at the scatter plot. because the restocking fee is charged at a percentage. This is a factor variable. 
+
+is.factor(mydata$restockingfee)  # R says false 
+
+df <- data.frame(finalprice=mydata$finalprice, restockingfee=as.factor(mydata$restockingfee))  # converting this continous variable into factor variable
+ggplot(df, aes(x=restockingfee, y=finalprice, fill=restockingfee)) + geom_boxplot() + 
+  xlab("Restocking fee") + ylab("Final price ($)") # generates boxplot
+# use boxplot for this situation. 
+# restocking fee does not make huge difference on final price. The only difference is between with restocking fee or with out restocking fee. 
+
+ggplot(mydata, aes(x=shippingfee, y=finalprice)) + geom_point(size=2.5) 
+
+ggplot(mydata, aes(x=return_policy_days, y=finalprice)) + geom_point(size=2.5) 
+
+is.factor(mydata$return_policy_days)   # FALSE 
+
+df2 <- data.frame(finalprice=mydata$finalprice, return_policy_days=as.factor(mydata$return_policy_days))
+ggplot(df2, aes(x=return_policy_days, y=finalprice, fill=return_policy_days)) + geom_boxplot() + 
+  xlab("Return Policy (day)") + ylab("Final price ($)") # generates boxplot
+
+# there is not big differences between the return policy days 
+
+ggplot(mydata, aes(x=sellerrating, y=finalprice)) + geom_point(size=2.5) 
+
+ggplot(mydata, aes(x=numofreviews_seller, y=finalprice)) + geom_point(size=2.5) 
+
+ggplot(mydata, aes(x=productrating, y=finalprice)) + geom_point(size=2.5) 
+
+ggplot(mydata, aes(x=numofreviews_product, y=finalprice)) + geom_point(size=2.5) 
+
+is.factor(mydata$paymentmethod)
+
+ggplot(mydata, aes(x=paymentmethod, y=finalprice, fill=paymentmethod)) + geom_boxplot() + 
+  xlab("Payment method") + ylab("Final price ($)") # generates boxplot
+
+is.factor(mydata$item_cond)
+
+ggplot(mydata, aes(x=item_cond, y=finalprice, fill=item_cond)) + geom_boxplot() + 
+  xlab("Item condition") + ylab("Final price ($)") # generates boxplot
+```
+
+#==========================================================
+## BUILD-UP MODEL
+#==========================================================
+```{r}
+
+Model1 = lm(finalprice~restockingfee+shippingfee+sellerrating+numofreviews_seller+productrating+numofreviews_product+ factor(item_cond), data=mydata) # we treat restocking fee as a continuous variable. As the restocking fee increases, the final price increases.
+stargazer(Model1, 
+          title="Regression Results", type="text", 
+          column.labels=c("Model-1"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001)) 
+
+# 1% point increase in restocking fee is associated with 44% increase in final price. more restocking fee means more lenient return policy. 
+# this is counter intuitive, not the same with what we thought. 
+
+table(mydata$item_cond) # counts the number of observations for each value of item_cond
+
+mydata$item_cond <- factor(mydata$item_cond, levels = c("New","Manufacturer Refurb","Refurb","Reman","Used" )) # changes the reference to category "New"
+
+Model2 = lm(finalprice~restockingfee+shippingfee+sellerrating+numofreviews_seller+productrating+numofreviews_product+item_cond, data=mydata) # As the restocking fee increases, the final price increases.
+stargazer(Model1, Model2,
+          title="Regression Results", type="text", 
+          column.labels=c("Model-1", "Model-2"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001)) 
+# this didnt help, the coefficient is still 0.44. 
+# may be the way we treat restocking fee is wrong. we treat restocking fee as a factor varaible, but the model treat it as a continous variable. 
+table(mydata$restockingfee)
+
+Model3 = lm(finalprice~factor(restockingfee)+shippingfee+sellerrating+numofreviews_seller+productrating+numofreviews_product+ item_cond, data=mydata) # we treat restocking fee as a factor variable. As the restocking fee increases, the final price increases.
+stargazer(Model2, Model3,
+          title="Regression Results", type="text", 
+          column.labels=c("Model-2", "Model-3"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001)) 
+# R2 increased from 0.26 to 0.29. restocking fee became factor varaibles and generated 5 coefficients. compare those with non restocking fees. theoretically these coefficient should be negative. but the results shouls they are possitibe, and even increasing. because more restocking fee should decrease the final price in our theory. 
+
+Model4 = lm(log(finalprice)~factor(restockingfee)+shippingfee+sellerrating+numofreviews_seller+productrating+numofreviews_product+ item_cond, data=mydata) # Let's log transform the dependent variable. The result still does not change. As the restocking fee increases, the final price increases.
+stargazer(Model4,
+          title="Regression Results", type="text", 
+          column.labels=c("Model-4"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001)) 
+```
+
+## Update-1 to the theoretical model
+```{r}
+mydata$new_item<-ifelse(mydata$item_cond=="New",1,0)
+mydata$DumRestocking<-ifelse(mydata$restockingfee==0,0,1)
+
+Model5 = lm(finalprice~DumRestocking+shippingfee+sellerrating+numofreviews_seller+productrating+numofreviews_product+ new_item, data=mydata)
+stargazer(Model5,
+          title="Regression Results", type="text", 
+          column.labels=c("Model-5"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001)) 
+# the dumb varialbe of restocking fee- more restocking fee, less lenient policy, higher final price, still counter intuitive. 
+
+# they are non-nesting models, so use AIC and BIC. go with the lower AIC and BIC. 
+AIC(Model3, Model5)
+BIC(Model3, Model5) # AIC and BIC show that Model 5 is better than Model-3. Still coefficient for restocking fee does not make sense.
+
+Model6 = lm(finalprice~DumRestocking+shippingfee+sellerrating+numofreviews_seller+productrating+numofreviews_product+ new_item+return_policy_days, data=mydata) # we treat return_policy_days as a continuous variable
+stargazer(Model5, Model6,
+          title="Regression Results", type="text", 
+          column.labels=c("Model-5", "Model-6"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001))  # Still coefficient for restocking fee does not make sense 
+# this new model still fits, R2 didn't change. and the new varaible return policy days is not even significant. 
+
+# these are nested modles, so use ANOVA
+anova(Model5, Model6, test="Chisq") # Chi Square test shows that return_policy_days does not improve model fit
+# go with model5. 
+
+table(mydata$return_policy_days) # Return policy days is a factor variable
+Model7 = lm(finalprice~DumRestocking+shippingfee+sellerrating+numofreviews_seller+productrating+numofreviews_product+ new_item+factor(return_policy_days), data=mydata) # we now treat return_policy_days as a factor variable
+
+stargazer(Model5, Model6, Model7,
+          title="Regression Results", type="text", 
+          column.labels=c("Model-5", "Model-6", "Model-7"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001))  # Still coefficient for restocking fee does not make sense, besides our definition of return_policy_days resulted in an identification problem!
+# the new coefficients are not even significant. 
+
+anova(Model5, Model7, test="Chisq") # Chi Square test shows that return_policy_days as a factorvariable does not improve model fit as well
+# choose model 5
+
+# may be there is a correlation between return policy days and restocking fees. 
+
+sum(mydata$return_policy_days==0 & mydata$restockingfee != 0) # you can use this as a "count if"" function. It shows that there is no observation for which the return policy days is 0 and restocking fee is different from zero.
+sum(mydata$return_policy_days!=0 & mydata$restockingfee == 0) # It shows that there is no observation for which the return policy days is different from 0 and restocking fee is zero. It seems these two variables carry similar information, a potential reason for the identification problem.
+cor(mydata$return_policy_days,mydata$restockingfee) # let's look at the correlation. 0.63 is a high correlation which may imply multicollinearity. Therefore, we will exclude return policy days from our model. Violating the policy. 
+
+mydata$return_pol<-ifelse(mydata$return_policy_days==0,0,1) # we now introduce a dummy variable to capture whether or not a return policy exists. if there is no return policy, take the value of 0. 1, more lenient, 0, less lenient. 
+
+Model8 = lm(finalprice~return_pol+shippingfee+sellerrating+numofreviews_seller+productrating+numofreviews_product+ new_item, data=mydata)
+stargazer(Model8,
+          title="Regression Results", type="text", 
+          column.labels=c("Model-8"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001))   # Now, the result makes sense!
+# 13.75 is positive and significant. Offereing a return policy roughtly a 13.75% increase in final price. 
+```
+
+## Update-2 to the theoretical model
+```{r}
+# understand the Business Environment of this problem. 
+# 
+mydata$paypal<-ifelse(mydata$paymentmethod=="PayPal",1,0)
+
+Model9 = lm(finalprice~return_pol*paypal+shippingfee+sellerrating+numofreviews_seller+productrating+numofreviews_product+ new_item, data=mydata)
+stargazer(Model8, Model9,
+          title="Regression Results", type="text", 
+          column.labels=c("Model-8", "Model-9"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001))   # Now, the result makes sense!
+# R2 jumped to 0.37 
+
+# Nested models. 
+anova(Model8, Model9, test="Chisq") # Chi Square test shows that the interaction term significantly improves model fit!
+# DF = 2 is because the new model has 2 new variables. 
+# paypal coeffieicent is not significant. the interaction term is significant. so we conclude that it is significant. because we only look at the ineraction term. the coefficient is negative, which implys that as the nonpaypal 0 goes to paypal 1, the impact of the return policy on fianl price will decrease. 
+
+meffects <- ggpredict(Model9, terms=c("return_pol", "paypal")) # generates a tidy data frame  
+
+ggplot(meffects,aes(x, predicted, colour=group)) + geom_line(size=1.3) + 
+    xlab("Return Policy") + ylab("Predicted Final Price ($)") +
+    labs(colour="Payment") + 
+    scale_colour_discrete(labels=c("CC", "PayPal")) +
+    scale_x_continuous(breaks=c(0,1), labels=c("No Return", "Return")) +
+    theme(axis.title.x=element_blank())
+
+# create two subsets of data, one includes only paypal, one inclues only credit cards payments. 
+df<- subset(mydata, paypal==0)
+df2<- subset(mydata, paypal==1)
+
+Model9A = lm(finalprice~return_pol*paypal+shippingfee+sellerrating+numofreviews_seller+productrating+numofreviews_product+ new_item, data=df)
+
+Model9B = lm(finalprice~return_pol*paypal+shippingfee+sellerrating+numofreviews_seller+productrating+numofreviews_product+ new_item, data=df2)
+
+stargazer(Model9A, Model9B,
+          title="Regression Results", type="text", 
+          column.labels=c("Credit Card", "PayPal"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001))  
+# the paypal payment in Model9A is always 0, so no coefficient is not generated. 
+# paypal is the blue linel. # credit card is the red line. 
+
+mydata$discount<-mydata$listprice-mydata$finalprice
+
+Model10 = lm(finalprice~return_pol*paypal+shippingfee+sellerrating+numofreviews_seller+productrating+numofreviews_product+ new_item+discount, data=mydata)
+stargazer(Model9, Model10,
+          title="Regression Results", type="text", 
+          column.labels=c("Model-9", "Model-10"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001))
+
+anova(Model9, Model10, test="Chisq") # Chi Square test shows that discount does not improve model fit
+
+# list price 
+# the final price is a function of the list price, including list price with the independent variable will mess up with the model. 
+```
+
