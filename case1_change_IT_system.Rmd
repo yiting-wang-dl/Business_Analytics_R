@@ -1,0 +1,155 @@
+---
+title: "Case Study-1: Is it worthy to change the entire IT system at headquarter office?"
+author: "Yiting Wang"
+output: word_document
+editor_options: 
+  chunk_output_type: console
+---
+
+#==========================================================
+## SET UP R MARKDOWN
+#==========================================================
+```{r}
+# You should generally clear the working space at the start of every R session
+rm(list = ls())
+
+# Set the directory
+setwd("C:/Users/tpstech/Desktop/BA SCU/OMIS 2392 Econometrics with R/Case Study 1")
+
+# Install/Load the required libraries 
+# run these only once
+#install.packages("stargazer") 
+#install.packages("ggplot2")
+#install.packages("gdata")
+#install.packages("ggeffects")
+#install.packages("QuantPsyc")
+
+# Load libraries everytime you start a session
+library(stargazer)
+library(gdata)
+library(ggplot2)
+library(psych) 
+library(ggeffects)
+library(QuantPsyc)
+
+# turn off scientific notation except for big numbers. 
+options(scipen = 9)
+```
+
+#==========================================================
+## READ AND EXPLORE DATA
+#==========================================================
+```{r}
+# read in CSV
+mydata = read.csv("AppleIT.csv")
+
+# Plot the data
+stargazer(mydata, type="text", median=TRUE, iqr=TRUE,digits=1, title="Descriptive Statistics")  
+
+ggplot(mydata, aes(x=completiontime)) + geom_histogram(colour="green") 
+ggplot(mydata, aes(x=log(completiontime))) + geom_histogram(colour="green") # use log transformed dependent variable
+
+ggplot(mydata, aes(x=scheduledtime)) + geom_histogram(colour="green") 
+ggplot(mydata, aes(x=log(scheduledtime))) + geom_histogram(colour="green") # use log transformed variable
+
+ggplot(mydata, aes(x=groupsize)) + geom_histogram(colour="green", bins = 15) 
+ggplot(mydata, aes(x=log(groupsize))) + geom_histogram(colour="green", bins=15) # use raw variable
+
+ggplot(mydata, aes(x=experience)) + geom_histogram(colour="green", bins = 15) 
+ggplot(mydata, aes(x=log(experience))) + geom_histogram(colour="green", bins = 15) # use raw variable
+
+mydata$newit <- as.factor(mydata$newit)
+ggplot(mydata, aes(x=newit, y=completiontime, fill=newit)) + geom_boxplot() + 
+  xlab("Completion Time") + ylab("New IT") # # Does not visually show any difference between new IT system and old IT system
+
+ggplot(mydata[mydata$completiontime<=1500,], aes(x=newit, y=completiontime, fill=newit)) + geom_boxplot() + 
+  xlab("Completion Time") + ylab("New IT") # We can demostrate only observations with completion time <= 1500. This way, we can zoom into the boxplot
+
+```
+#==========================================================
+## BUILD-UP MODEL
+#==========================================================
+```{r}
+# Basic OLS model
+m1 <- lm(log(completiontime)~newit+log(scheduledtime)+training+groupsize+experience+gender,data=mydata)
+stargazer(m1, 
+          title="Regression Results", type="text", 
+          column.labels=c("Model-1"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001)) 
+
+# Consider alternative models
+altmodel1 <- lm(log(completiontime)~newit+log(scheduledtime)+training+groupsize+experience,data=mydata)
+stargazer(m1, altmodel1,
+          title="Regression Results", type="text", 
+          column.labels=c("Model-1", "Alt_Model-1"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001)) 
+
+anova(m1, altmodel1, test="Chisq") # altmodel1 is better than m1. 
+
+AIC(m1,altmodel1) # This is the wrong test
+BIC(m1,altmodel1) # This is the wrong test
+
+altmodel2 <- lm(log(completiontime)~newit+scheduledtime+training+groupsize+experience,data=mydata)
+stargazer(altmodel1, altmodel2,
+          title="Regression Results", type="text", 
+          column.labels=c( "AltModel-1", "AltModel-2"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001)) 
+
+AIC(altmodel1,altmodel2)
+BIC(altmodel1,altmodel2) # altModel-1 is better than altmodel-2
+
+altmodel3 <- lm(log(completiontime)~newit+log(scheduledtime)+training+groupsize+I(groupsize^2)+experience,data=mydata)
+stargazer(altmodel1, altmodel3,
+          title="Regression Results", type="text", 
+          column.labels=c( "AltModel-1", "AltModel-3"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001)) 
+
+anova(altmodel1, altmodel3, test="Chisq") # altmodel-1 is better than altmodel-3. 
+
+altmodel4 <- lm(log(completiontime)~newit+log(scheduledtime)+training+groupsize+experience+I(experience^2),data=mydata)
+stargazer(altmodel1, altmodel4,
+          title="Regression Results", type="text", 
+          column.labels=c( "AltModel-1", "AltModel-4"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001)) 
+
+anova(altmodel1, altmodel4, test="Chisq") # altmodel-1 is better than altmodel-4. 
+```
+
+
+## Run interaction model
+```{r}
+res2 <- lm(log(completiontime)~newit*training+log(scheduledtime)+groupsize+experience,data=mydata)
+stargazer(altmodel1, res2,
+          title="Regression Results", type="text", 
+          column.labels=c( "AltModel-1", "IntModel-4"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001)) 
+
+anova(altmodel1, res2, test="Chisq") # the interaction model is better than altmodel-1
+
+meffects <- ggpredict(res2, terms=c("newit", "training")) # generates a tidy data frame  
+
+ggplot(meffects,aes(x, predicted, colour=group)) + geom_line(size=1.3) + 
+    xlab("New IT") + ylab("Predicted log(Completion Time)") +
+    labs(colour="Training") + 
+    scale_colour_discrete(labels=c("No", "Yes")) +
+    scale_x_continuous(breaks=c(0,1), labels=c("Old IT", "New IT")) +
+    theme(axis.title.x=element_blank())
+
+mydata2 <- subset(mydata, training == 1) # generates a subset of data using observations only with training value ==1 
+
+res3 = lm(log(completiontime)~newit+log(scheduledtime)+groupsize+experience+gender,data=mydata2)
+stargazer(res3,
+          title="Regression Results", type="text", 
+          column.labels=c( "Trained"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001)) 
+
+mydata3 <- subset(mydata, training == 0) # generates a subset of data using observations only with training value ==0
+
+res4 = lm(log(completiontime)~newit+log(scheduledtime)+groupsize+experience+gender,data=mydata3)
+stargazer(res3, res4,
+          title="Regression Results", type="text", 
+          column.labels=c( "Trained", "Untrained"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001)) 
+
+```
+
