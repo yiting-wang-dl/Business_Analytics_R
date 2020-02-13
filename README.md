@@ -11,7 +11,7 @@ Topics:
 - Count data models
 
 Project Lists
-1. Does a Generous Return Policy Affect the Final Price on Ebay?
+1. Does a generous return policy affect the final price of a product on Ebay?
 2. Does promotion improve sales quantity and revenue? If so, by how much?
 3. Is the return rate high? If so, how to decrease it?
 4.
