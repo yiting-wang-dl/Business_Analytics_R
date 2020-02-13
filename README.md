@@ -17,7 +17,7 @@ Project Lists
 4. Is it worthy to change the entire IT system at headquarter office?
 5. Predictive analytics to consider making training program manditory.
 6. Identify customers who have a high propensity to purchase the warranty plan.
-7.
+7. Digital Marketing: Facebook & Amazon.
 8. Effectiveness of Salesperson Training Program in Retail Stores
 
 
