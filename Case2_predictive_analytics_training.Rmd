@@ -1,0 +1,163 @@
+---
+title: "Case Study-2: Predictive analytics to consider making training program manditory."
+author: "Yiting Wang"
+output: word_document
+---
+
+#==========================================================
+## SET UP R MARKDOWN
+#==========================================================
+```{r}
+# You should generally clear the working space at the start of every R session
+rm(list = ls())
+
+# Set the directory
+setwd("C:/Users/nertekin/Dropbox/Santa Clara Teaching/OMIS 2392/Case Studies/Case Study-2")
+
+# Install/Load the required libraries 
+# run these only once
+#install.packages("stargazer") 
+#install.packages("ggplot2")
+#install.packages("gdata")
+#install.packages("ggeffects")
+#install.packages("QuantPsyc")
+install.packages("VIF")
+install.packages("lmtest")
+install.packages("AER")
+
+# Load libraries everytime you start a session
+
+library(stargazer)
+library(gdata)
+library(ggplot2)
+library(psych) 
+library(ggeffects)
+library(QuantPsyc)
+library(VIF)
+library(usdm)
+library(lmtest)
+library(sandwich)
+library(AER)
+library(foreign)
+
+# turn off scientific notation except for big numbers. 
+options(scipen = 9)
+```
+
+#==========================================================
+## READ AND EXPLORE DATA
+#==========================================================
+```{r}
+mydata = read.csv("Salesperson_training.csv")
+
+## 1. Histogram plots
+hist(mydata$annual_sales)
+hist(log(mydata$annual_sales))
+
+mydata$lnsales<-log(mydata$annual_sales)
+```
+
+#==========================================================
+## BUILD-UP MODEL
+#==========================================================
+```{r}
+## 2. MulticollinearyPlot the data
+df=data.frame(mydata$self_training_score,mydata$school_years,mydata$experience_years,mydata$service_years,mydata$age,mydata$male,mydata$child,mydata$year_2010,mydata$year_2011,mydata$year_2012,mydata$year_2013,mydata$year_2014,mydata$year_2015)
+
+cor(df) # Generates the correlation matrix
+vif(df) # Calculates VIF scores . All VIFs are less than 3, indicating there is no multicollinearity in the dataset
+vifstep(df, th=10000)
+
+## 3. Run the model
+model1=lm(lnsales~self_training_score+school_years+experience_years+service_years+age+male+child+year_2010+year_2011+year_2012+year_2013+year_2014+year_2015,data=mydata)
+stargazer(model1, 
+          title="Regression Results", type="text", 
+          column.labels=c("Model-1"),
+          df=FALSE, digits=4, star.cutoffs = c(0.05,0.01,0.001))  # The coefficient of self_training_score is positive and significant, implying a 1 point increase in self_training_score is associated with a 0.34% increase in sales 
+
+## 4. Test heteroscedasticity
+
+pred<-predict(model1) #obtain fitted values
+res=resid(model1) # obtain residuals
+
+ggplot(df, aes(y=res, x=pred)) + geom_point(size=2.5) # Let's check heteroscedasticity visually first. Residuals do not demonstrate any visible pattern.
+
+gqtest(model1) # Goldfeld-Quandt test is  significant, implying there is heteroscedasticity
+
+bptest(model1) # Breusch-Pagan test is not significant, implying no heteroscedasticity
+
+consstder <- sqrt(diag(vcovHC(model1, type="const"))) # produces normal standard errors
+HWrobstder <- sqrt(diag(vcovHC(model1, type="HC1"))) # produces Huber-White robust standard errors 
+
+stargazer(model1, model1,  
+          se=list(consstder, HWrobstder),
+          title="Regression Results", type="text", 
+          column.labels=c("Normal SE", "HW-Robust SE"),
+          df=FALSE, digits=4, star.cutoffs = c(0.05,0.01,0.001))  # In this example, we see that even though the significance level for self_training_score slightly decreased, it is still significant at 1% significance level. 
+```
+
+#==========================================================
+## ADDRESSING ENDOGENEITY
+#==========================================================
+## 2SLS estimator
+```{r}
+
+model3<- ivreg(lnsales~self_training_score+school_years+experience_years+service_years+age+male+child+year_2010+year_2011+year_2012+year_2013+year_2014+year_2015|mother_education+score_other_test+married+school_years+experience_years+service_years+age+male+child+year_2010+year_2011+year_2012+year_2013+year_2014+year_2015, data=mydata) # gives 2SLS estimator. We use mother_education, score_other_test, and married as the instruments for self_training_score. 
+
+stargazer(model3,  
+          title="Regression Results", type="text", 
+          column.labels=c("2SLS-4IVs"),
+          df=FALSE, digits=4, star.cutoffs = c(0.05,0.01,0.001))
+
+summary(model3,diagnostics = TRUE) # We see that the coefficient is now three times more. That is, a 1 point increase in self_training_score increases sales by about 1.1%. While the Weak instrument test (F-test) indicates the instruments are relevant, Sargan test indicates that not all instruments are exogenous. Therefore, we have weak IVs and cannot rely on the results. In addition, the Hausman test is not reliable due to weak instrument(s) 
+
+## Identify weak estimators
+df<-data.frame(mydata$lnsales,mydata$self_training_score,mydata$married,mydata$mother_education,mydata$score_other_test)
+cor(df) # Let's look at correlations first, it seems married is a weak instrument since it is highly correlated with lnsales and weakly correlated with self_training_score. The strongest instrument is certainly mother_education. We are not sure about score_other_test because its correlation with the dependent variable is slightly high. Therefore, we will run the model both with mother_education being the only instrument and with mother_education and score_other_test being the two instruments. 
+
+## 2SLS estimator
+model4<- ivreg(lnsales~self_training_score+school_years+experience_years+service_years+age+male+child+year_2010+year_2011+year_2012+year_2013+year_2014+year_2015|mother_education+school_years+experience_years+service_years+age+male+child+year_2010+year_2011+year_2012+year_2013+year_2014+year_2015, data=mydata) # The only instrument is mother_education
+stargazer(model4,  
+          title="Regression Results", type="text", 
+          column.labels=c("2SLS-1IV"),
+          df=FALSE, digits=4, star.cutoffs = c(0.05,0.01,0.001))
+
+summary(model4,diagnostics = TRUE) # We see that the coefficient of self_training_score is 0.016 and not significant. The Weak instrument test (F-test) is less than 10, indicating the instrument is not relevant. Therefore, we cannot rely on the results. Sargan test is not generated because we only have 1 instrument for 1 endogenous variable.  
+
+model5<- ivreg(lnsales~self_training_score+school_years+experience_years+service_years+age+male+child+year_2010+year_2011+year_2012+year_2013+year_2014+year_2015|mother_education+score_other_test+school_years+experience_years+service_years+age+male+child+year_2010+year_2011+year_2012+year_2013+year_2014+year_2015, data=mydata) # The instruments are mother_education and score_other_test
+
+stargazer(model5,  
+          title="Regression Results", type="text", 
+          column.labels=c("2SLS-2IVs"),
+          df=FALSE, digits=4, star.cutoffs = c(0.05,0.01,0.001))
+
+summary(model5,diagnostics = TRUE) #  We see that the coefficient of self_training_score is 0.0128 and significant. The Weak instrument test (F-test) is greater than 10, indicating the instruments are relevant. Sargan test is not significant, implying the instruments are exogenous. The Hausman test is also significant, implying there is endogenetiy and the 2SLS model must be used. Overall, this model is better than the previous model (2SLS with one instrument) and the  OLS model because it shows that the two instruments are better than the single instrument and OLS has endogeneity. Therefore, this is our final model. 
+
+consstder <- sqrt(diag(vcovHC(model5, type="const"))) # produces normal standard errors
+HWrobstder <- sqrt(diag(vcovHC(model5, type="HC1"))) # produces Huber-White robust standard errors 
+
+stargazer(model5, model5,  
+          se=list(consstder, HWrobstder),
+          title="Regression Results", type="text", 
+          column.labels=c("Normal SE", "HW-Robust SE"),
+          df=FALSE, digits=4, star.cutoffs = c(0.05,0.01,0.001)) # Since we know that there is heteroscedasticity, we report robust standard errors. As we see, the significance level for self_training_score does not change with robust standard errors. Therefore, we conclude that a 1 point increase in self training score increases annual sales of an employee by 1.28%.  
+```
+
+#==========================================================
+## QUANTIFYING IMPACT
+#==========================================================
+```{r}
+pred<-predict(model5) # Obtain predicted values form the final model
+self_training_score<-mydata$self_training_score # We will use this in the next command
+model7<-lm(pred~self_training_score) # Linear fit of predicted values across self_training_module
+
+df2 <- data.frame(pred,self_training_score)
+ggplot(df2, aes(y=pred, x=self_training_score)) + geom_point(size=2.5) # Let's see the plot of predicted values across self_training_score
+ggplot(df2, aes(y=pred, x=self_training_score)) + geom_point(size=2.5) + stat_smooth(method=lm, colour="red") # adds the fitted line to the plot
+
+new.scores <- data.frame(self_training_score = c(101,mean(mydata$self_training_score))) # Generate two data points to find the predicted values for lnSales
+predict(model7,newdata=new.scores) # Predict lnSales for those two points. The predicted values are 5.636512 for the score of 101 and 5.686739 for the mean score of trained employees 
+
+exp(5.686739)-exp(5.636512) # This is the impact of completing training on annual sales. On average, we can conclude that training increases annual sales per salesperson by about $14.4K.
+```
+
