@@ -1,0 +1,196 @@
+---
+title: "Case Study-3: Identify customers who have a high propensity to purchase the warranty plan."
+output: word_document
+---
+#==========================================================
+## SET UP R MARKDOWN
+#==========================================================
+```{r}
+# You should generally clear the working space at the start of every R session
+rm(list = ls())
+
+# Set the directory
+setwd("C:/Users/nertekin/Dropbox/Santa Clara Teaching/OMIS 2392/Case Studies/Case Study-3")
+
+# install packages
+#install.packages("ggeffects")
+#install.packages("QuantPsyc")
+#install.packages("VIF")
+#install.packages("usdm")
+#install.packages("lmtest")
+#install.packages("multiwayvcov")
+#install.packages("sandwich")
+#install.packages("AER")
+#install.packages("aod")
+install.packages("mfx")
+
+# Load libraries everytime you start a session
+library(stargazer)
+library(gdata)
+library(ggplot2)
+library(psych) 
+library(ggeffects)
+library(QuantPsyc)
+library(usdm)
+library(lmtest)
+library(multiwayvcov)
+library(sandwich)
+library(foreign)
+library(AER)
+library(aod)
+library(Rcpp)
+library(mfx)
+library(nnet)
+library(reshape2)
+library(VIF)
+
+# turn off scientific notation except for big numbers. 
+options(scipen = 9)
+```
+#==========================================================
+## READ DATA
+#==========================================================
+```{r}
+mydata = read.csv("BestBuy.csv")
+```
+
+#==========================================================
+## BUILD-UP MODEL
+#==========================================================
+```{r}
+# Test multicollinearity
+df=data.frame(mydata$PriceCategory,mydata$MyBestBuy,mydata$appliances,mydata$age,mydata$married,mydata$hhincome,mydata$hisp,mydata$familysize,mydata$productgeneration,mydata$newcustomer,mydata$weekend)
+
+cor(df) # Generates the correlation matrix
+vif(df) # VIF scores are quite high for some variables. Based on the correlation matrix, it is likely that Pricoe category and product generation cause multicollinearity. Therefore, we remove product generation.
+
+df=data.frame(mydata$PriceCategory,mydata$MyBestBuy,mydata$appliances,mydata$age,mydata$married,mydata$hhincome,mydata$hisp,mydata$familysize,mydata$newcustomer,mydata$weekend)
+
+vif(df) # VIF scores are still high for married and familysize. We remove familysize due to high correlation.
+
+df=data.frame(mydata$PriceCategory,mydata$MyBestBuy,mydata$appliances,mydata$age,mydata$married,mydata$hhincome,mydata$hisp,mydata$newcustomer,mydata$weekend)
+
+vif(df) # Now all VIF scores are fine. These are the independent variables we will use. 
+
+# Logit
+logit1<- glm(Warranty~PriceCategory+MyBestBuy+appliances+age+married+hhincome+hisp+newcustomer+weekend, data=mydata, family="binomial") # This is the command to run a logit regression 
+
+logit1a <- glm(Warranty~1, data=mydata, family="binomial") # This is the command to run a logit on null model 
+lrtest(logit1, logit1a) #We compare the null model to our model to determine the model fit. The p-value for the chi-square tet is  less than 0.001. Thus, model logit-1 fits significantly better than the null model.
+
+# Correct classification rate
+pred = predict(logit1, data=mydata,type="response") # Let's generate predicted probabilities
+return_prediction <- ifelse(pred >= 0.5,1,0) 
+misClasificError <- mean(return_prediction != mydata$Warranty) # count number of wrong classifications
+print(paste('Accuracy',1-misClasificError)) # The correct classification rate is 66.99%. 
+
+stargazer(logit1, 
+          title="Regression Results", type="text", 
+          column.labels=c("Logit-1"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001))  # We see that only MyBestBuy, Married, HHIncome, and Hisp are significant.
+
+# Add interaction term
+logit2<- glm(Warranty~PriceCategory*appliances+MyBestBuy+age+married+hhincome+hisp+newcustomer+weekend, data=mydata, family="binomial") 
+
+lrtest(logit2, logit1a) #We compare the null model to our model to determine the model fit. The p-value for the chi-square tet is  less than 0.001. Thus, model logit-2 fits significantly better than the null model.
+
+# Correct classification rate
+pred = predict(logit2, data=mydata,type="response") # Let's generate predicted probabilities
+return_prediction <- ifelse(pred >= 0.5,1,0) 
+misClasificError <- mean(return_prediction != mydata$Warranty) # count number of wrong classifications
+print(paste('Accuracy',1-misClasificError)) # The correct classification rate is 68.15%. 
+
+stargazer(logit1, logit2,
+          title="Regression Results", type="text", 
+          column.labels=c("Logit-1", "Logit-2"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001))  # MyBestBuy is no longer significant. However, Married, HHIncome, and Hisp are still significant. In addition, the interaction term is also significant.
+
+lrtest(logit1, logit2) # The interaction term improves the model fit.
+
+
+logit3<- glm(Warranty~PriceCategory*appliances+age+married+hhincome+hisp+newcustomer+weekend, data=mydata, family="binomial") # We can remove MyBestBuy because it is not significant and might potentially create endogeneity. 
+
+lrtest(logit3, logit1a) #We compare the null model to our model to determine the model fit. The p-value for the chi-square tet is  less than 0.001. Thus, model logit-3 fits significantly better than the null model.
+
+# Correct classification rate
+pred = predict(logit3, data=mydata,type="response") # Let's generate predicted probabilities
+return_prediction <- ifelse(pred >= 0.5,1,0) 
+misClasificError <- mean(return_prediction != mydata$Warranty) # count number of wrong classifications
+print(paste('Accuracy',1-misClasificError)) # The correct classification rate is 68.12%. 
+
+stargazer(logit2, logit3,
+          title="Regression Results", type="text", 
+          column.labels=c("Logit-2", "Logit-3"),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001))  # Removing MyBestBuy does not change the results and we no longer have endgeneity concern.
+
+lrtest(logit2, logit3) # LR test also supports removing MyBestBuy 
+
+# Check for heteroscedasticity
+gqtest(logit3) # Significant Goldfeld-Quandt test does not indicate heteroscedasticity 
+bptest(logit3) # Significant Breusch-Pagan test indicates heteroscedasticity
+
+HWrobstder <- sqrt(diag(vcovHC(logit3, type="HC1"))) # produces Huber-White robust standard errors 
+
+stargazer(logit3, logit3,  
+          se=list(NULL, HWrobstder),
+          title="Regression Results", type="text", 
+          column.labels=c("Normal SE", "HW-Robust SE"),
+          df=FALSE, digits=3, star.cutoffs = c(0.05,0.01,0.001))  # Robust std. errors do not change the significance levels
+
+```
+#==========================================================
+## VISUALIZE RESULTS
+#==========================================================
+```{r}
+meffects <- ggpredict(logit3, terms=c("PriceCategory", "appliances")) # generates a tidy data frame  
+
+ggplot(meffects,aes(x, predicted, colour=group)) + geom_line(size=1.3) + 
+    xlab("Price Category") + ylab("Probability of Warranty Purchase") +
+    labs(colour="") + 
+    scale_colour_discrete(labels=c("Non-appliances", "Appliances"))
+
+
+# Marginal effects with robust standard errors
+
+b <- logitmfx(Warranty~PriceCategory*appliances+age+married+hhincome+hisp+newcustomer+weekend, data=mydata, robust=TRUE) # We can obtain the marginal effects from a logit that uses robust standard errors. Note that marginal effects do not change, however, std. errors, and therefore, p-values change.
+
+marginaleffects <- b$mfxest[,1]
+rob.std.err <- b$mfxest[,2]
+
+stargazer(logit3,
+          se=list(rob.std.err),
+          omit=c("Constant"),
+          coef = list(marginaleffects,marginaleffects),
+          title="Regression Results", type="text", 
+          column.labels=c("Marg.Eff.w/RobStdEr" ),
+          df=FALSE, digits=2, star.cutoffs = c(0.05,0.01,0.001))
+
+meffects2 <- ggpredict(logit3, terms=c("married")) # generates a tidy data frame  
+ggplot(meffects2,aes(x, predicted)) + geom_line() + geom_point(size=5, colour="maroon") +
+    xlab("Marital Status") + ylab("Probability of Warranty Purchase") +
+     scale_x_continuous(breaks=c(0,1), labels=c("Single", "Married")) 
+
+meffects3 <- ggpredict(logit3, terms=c("hhincome")) # generates a tidy data frame  
+ggplot(meffects3,aes(x, predicted)) + geom_line(size=1.3) + 
+    xlab("Household Income") + ylab("Probability of Warranty Purchase") 
+
+meffects4 <- ggpredict(logit3, terms=c("hisp")) # generates a tidy data frame  
+ggplot(meffects4,aes(x, predicted)) + geom_line() + geom_point(size=5, colour="maroon") +
+    xlab("Ethnicity") + ylab("Probability of Warranty Purchase") +
+     scale_x_continuous(breaks=c(0,1), labels=c("Non-hispanic", "Hispanic")) 
+```
+#==========================================================
+## COMPARE WITH PROBIT RESULTS FOR ROBUSTNESS
+#==========================================================
+```{r}
+a <- probitmfx(formula=Warranty~PriceCategory*appliances+age+married+hhincome+hisp+newcustomer+weekend, data=mydata, robust=TRUE) # We can generate the marginal effects with this command. The one unit increase in selling pressure increases the probability of return by 0.168, holding other variables at their means
+marginaleffects_probit <- a$mfxest[,1]
+rob.std.err_probit <- a$mfxest[,2]
+
+stargazer(logit3, probit1, 
+          omit=c("Constant"),
+          coef = list(marginaleffects,marginaleffects_probit), se = list(rob.std.err,rob.std.err_probit),
+          title="Marginal Effects", type="text", 
+          column.labels=c("Logit", "Probit"),
+          df=FALSE, digits=4, star.cutoffs = c(0.05,0.01,0.001)) # Probit marginal effects are very close to logit marginal effects, therefore we can pick to use either of the two models to generate the insights
+```
